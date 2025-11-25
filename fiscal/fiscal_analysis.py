@@ -408,10 +408,10 @@ def generate_report(df, gdp_info):
     cols = ['Total_Impulse', 'MTD_Impulse', 'MA20_Impulse', 'Impulse_Weekly_Pct_GDP', 'Cum_Diff_YoY', 'TGA_Balance']
     print(recent[cols].sort_index(ascending=False).head(5).to_string(float_format="{:,.2f}".format))
     
-    # Export
-    csv_path = "fiscal_analysis_full.csv"
-    df.to_csv(csv_path)
-    print(f"\nFull data exported to {csv_path}")
+    # Export to CSV
+    output_file = "outputs/fiscal/fiscal_analysis_full.csv"
+    df.to_csv(output_file)
+    print(f"\nData exported to {output_file}")
 
 def main():
     print("Starting Advanced Fiscal Analysis...")

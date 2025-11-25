@@ -293,12 +293,12 @@ def generate_report(df_repo, df_rrp, df_fails):
 
     # Export
     if not df_repo.empty:
-        df_repo.to_csv("nyfed_repo_ops.csv")
-        print("\nRepo operations exported to nyfed_repo_ops.csv")
+        df_repo.to_csv("outputs/fed/nyfed_repo_ops.csv")
+        print("Repo operations exported to outputs/fed/nyfed_repo_ops.csv")
 
     if not df_rrp.empty:
-        df_rrp.to_csv("nyfed_rrp_ops.csv")
-        print("RRP operations exported to nyfed_rrp_ops.csv")
+        df_rrp.to_csv("outputs/fed/nyfed_rrp_ops.csv")
+        print("RRP operations exported to outputs/fed/nyfed_rrp_ops.csv")
 
     if not df_fails.empty:
         df_fails.to_csv("nyfed_settlement_fails.csv")

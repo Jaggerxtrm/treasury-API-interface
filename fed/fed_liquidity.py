@@ -167,22 +167,22 @@ def load_tga_data(csv_path=None):
     import os
 
     if csv_path is None:
-        # Try multiple paths
-        possible_paths = [
-            "../fiscal_analysis_full.csv",         # From fed/ to root
-            "fiscal_analysis_full.csv",            # From root directory
-            "../fiscal/fiscal_analysis_full.csv",  # From fed/ to fiscal/
-            "fiscal/fiscal_analysis_full.csv"      # From root to fiscal/
+        # Try multiple locations
+        search_paths = [
+            "outputs/fiscal/fiscal_analysis_full.csv",
+            "../outputs/fiscal/fiscal_analysis_full.csv",
+            "fiscal/outputs/fiscal/fiscal_analysis_full.csv",
+            "fiscal_analysis_full.csv",  # Fallback to old location
         ]
-
-        for path in possible_paths:
+        
+        for path in search_paths:
             if os.path.exists(path):
                 csv_path = path
                 break
-
-    if csv_path is None or not os.path.exists(csv_path):
-        print("TGA data file not found in expected locations")
-        return pd.Series(dtype=float)
+        
+        if csv_path is None:
+            print("TGA data file not found in any expected location")
+            return pd.Series(dtype=float)
 
     try:
         print(f"Loading TGA data from {csv_path}...")
@@ -1239,7 +1239,7 @@ def generate_report(df, series_metadata=None):
         print(recent[cols].sort_index(ascending=False).to_string(float_format="{:,.2f}".format))
     
     # Export full data
-    csv_path = "fed_liquidity_full.csv"
+    csv_path = "outputs/fed/fed_liquidity_full.csv"
     df.to_csv(csv_path)
     print(f"\n{"="*60}")
     print(f"Full data exported to {csv_path}")
@@ -1286,7 +1286,7 @@ def generate_report(df, series_metadata=None):
     summary_data['YoY'].append('N/A')
     
     summary_df = pd.DataFrame(summary_data)
-    summary_csv = "fed_liquidity_summary.csv"
+    summary_csv = "outputs/fed/fed_liquidity_summary.csv"
     summary_df.to_csv(summary_csv, index=False)
     print(f"Summary metrics exported to {summary_csv}")
     print("="*60)

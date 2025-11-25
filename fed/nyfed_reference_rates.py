@@ -188,7 +188,7 @@ def generate_report(merged_df):
     print(recent.to_string(float_format="{:.2f}".format))
 
     # Export
-    csv_path = "nyfed_reference_rates.csv"
+    csv_path = "outputs/fed/nyfed_reference_rates.csv"
     merged_df.to_csv(csv_path)
     print(f"\nReference rates exported to {csv_path}")
 

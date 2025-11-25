@@ -37,24 +37,27 @@ def find_file(filename, search_paths):
     return None
 
 FISCAL_SEARCH_PATHS = [
-    "fiscal_analysis_full.csv",
-    "../fiscal_analysis_full.csv",
-    "fiscal/fiscal_analysis_full.csv"
+    "outputs/fiscal/fiscal_analysis_full.csv",
+    "../outputs/fiscal/fiscal_analysis_full.csv",
+    "fiscal/outputs/fiscal/fiscal_analysis_full.csv",
 ]
 
 FED_SEARCH_PATHS = [
-    "fed_liquidity_full.csv",
-    "fed/fed_liquidity_full.csv"
+    "outputs/fed/fed_liquidity_full.csv",
+    "../outputs/fed/fed_liquidity_full.csv",
+    "fed/outputs/fed/fed_liquidity_full.csv",
 ]
 
 REPO_SEARCH_PATHS = [
-    "nyfed_repo_ops.csv",
-    "fed/nyfed_repo_ops.csv"
+    "outputs/fed/nyfed_repo_ops.csv",
+    "../outputs/fed/nyfed_repo_ops.csv",
+    "fed/outputs/fed/nyfed_repo_ops.csv",
 ]
 
 FAILS_SEARCH_PATHS = [
-    "nyfed_settlement_fails.csv",
-    "fed/nyfed_settlement_fails.csv"
+    "outputs/fed/nyfed_settlement_fails.csv",
+    "../outputs/fed/nyfed_settlement_fails.csv",
+    "fed/outputs/fed/nyfed_settlement_fails.csv",
 ]
 
 # Component Weights (configurable)
