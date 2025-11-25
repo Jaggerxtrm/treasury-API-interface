@@ -221,50 +221,165 @@ class NYFedClient:
     ) -> pd.DataFrame:
         """
         Fetch reference rate data (SOFR, EFFR, etc.).
-        
+
         Args:
             rate_type: One of 'sofr', 'bgcr', 'tgcr', 'effr', 'obfr'
             num_records: Number of records to fetch
-        
+
         Returns:
             DataFrame with rate data
         """
         # Determine category (secured vs unsecured)
         category = "unsecured" if rate_type in ["effr", "obfr"] else "secured"
-        
+
         # Construct URL
         url = f"{self.base_url}/rates/{category}/{rate_type}/search.json"
-        
+
         # Calculate start date
         start_date = (datetime.now() - timedelta(days=400)).strftime("%Y-%m-%d")
         params = {"startDate": start_date}
-        
+
         try:
             response = requests.get(url, params=params, timeout=30)
             response.raise_for_status()
             data = response.json()
-            
+
             if "refRates" not in data:
                 return pd.DataFrame()
-            
+
             rates_list = data["refRates"]
-            
+
             if not rates_list:
                 return pd.DataFrame()
-            
+
             df = pd.DataFrame(rates_list)
-            
+
             # Parse date
             if "effectiveDate" in df.columns:
                 df["date"] = pd.to_datetime(df["effectiveDate"])
                 df.set_index("date", inplace=True)
-            
+
             # Extract rate value
             if "percentRate" in df.columns:
                 df["rate"] = pd.to_numeric(df["percentRate"], errors="coerce")
-            
+
             return df.sort_index()
-            
+
         except Exception as e:
             print(f"Error fetching {rate_type}: {e}")
             return pd.DataFrame()
+
+    def fetch_settlement_fails(
+        self,
+        start_date: str = DEFAULT_START_DATE
+    ) -> pd.DataFrame:
+        """
+        Fetch settlement fails data from NY Fed Primary Dealer Statistics.
+
+        Settlement fails represent failures to deliver or receive securities
+        by primary dealers. High fails can indicate market stress.
+
+        Args:
+            start_date: Start date (YYYY-MM-DD)
+
+        Returns:
+            DataFrame with settlement fails aggregated by security type
+
+        Notes:
+            - Data published weekly on Thursdays for prior week
+            - Fetches Treasury fails across all maturities
+            - Aggregates fails to deliver + fails to receive
+            - Values are in millions of dollars
+        """
+        print("Fetching settlement fails from NY Fed Primary Dealer Statistics...")
+
+        # Treasury fails series by maturity
+        # TD = To Deliver, TR = To Receive
+        treasury_series = {
+            'PDFRN2F-TD': 'Treasury_FRN_FailsToDeliver',
+            'PDFRN2F-TR': 'Treasury_FRN_FailsToReceive',
+            'PDSI2F-TD': 'Treasury_2Y_FailsToDeliver',
+            'PDSI2F-TR': 'Treasury_2Y_FailsToReceive',
+            'PDSI3F-TD': 'Treasury_3Y_FailsToDeliver',
+            'PDSI3F-TR': 'Treasury_3Y_FailsToReceive',
+            'PDSI5F-TD': 'Treasury_5Y_FailsToDeliver',
+            'PDSI5F-TR': 'Treasury_5Y_FailsToReceive',
+            'PDSI7F-TD': 'Treasury_7Y_FailsToDeliver',
+            'PDSI7F-TR': 'Treasury_7Y_FailsToReceive',
+            'PDSI10F-TD': 'Treasury_10Y_FailsToDeliver',
+            'PDSI10F-TR': 'Treasury_10Y_FailsToReceive',
+            'PDSI20F-TD': 'Treasury_20Y_FailsToDeliver',
+            'PDSI20F-TR': 'Treasury_20Y_FailsToReceive',
+            'PDSI30F-TD': 'Treasury_30Y_FailsToDeliver',
+            'PDSI30F-TR': 'Treasury_30Y_FailsToReceive',
+            'PDST5F-TD': 'Treasury_TIPS_5Y_FailsToDeliver',
+            'PDST5F-TR': 'Treasury_TIPS_5Y_FailsToReceive',
+            'PDST10F-TD': 'Treasury_TIPS_10Y_FailsToDeliver',
+            'PDST10F-TR': 'Treasury_TIPS_10Y_FailsToReceive',
+            'PDST30F-TD': 'Treasury_TIPS_30Y_FailsToDeliver',
+            'PDST30F-TR': 'Treasury_TIPS_30Y_FailsToReceive',
+        }
+
+        all_series = {}
+
+        # Fetch each series
+        for keyid, col_name in treasury_series.items():
+            try:
+                url = f"{self.base_url}/pd/get/{keyid}.json"
+                response = requests.get(url, timeout=30)
+
+                if response.status_code == 200:
+                    data = response.json()
+
+                    if "pd" in data and "timeseries" in data["pd"]:
+                        timeseries = data["pd"]["timeseries"]
+
+                        if timeseries:
+                            # Convert to DataFrame
+                            df_series = pd.DataFrame(timeseries)
+
+                            # Parse date
+                            df_series["date"] = pd.to_datetime(df_series["asofdate"])
+
+                            # Convert value column (handle "*" as NaN)
+                            df_series["value"] = pd.to_numeric(
+                                df_series["value"],
+                                errors="coerce"
+                            )
+
+                            # Set index and extract series
+                            df_series.set_index("date", inplace=True)
+                            series = df_series["value"]
+
+                            # Filter by start_date
+                            if start_date:
+                                series = series[series.index >= start_date]
+
+                            all_series[col_name] = series
+
+            except Exception as e:
+                continue
+
+        if not all_series:
+            return pd.DataFrame()
+
+        # Merge all series
+        df = pd.concat(all_series, axis=1, join="outer").sort_index()
+
+        # Calculate aggregates
+        # Total fails = sum of all fails to deliver + all fails to receive
+        deliver_cols = [col for col in df.columns if "FailsToDeliver" in col]
+        receive_cols = [col for col in df.columns if "FailsToReceive" in col]
+
+        if deliver_cols:
+            df["treasury_fails_deliver"] = df[deliver_cols].sum(axis=1)
+        if receive_cols:
+            df["treasury_fails_receive"] = df[receive_cols].sum(axis=1)
+
+        # Total Treasury fails
+        if "treasury_fails_deliver" in df.columns and "treasury_fails_receive" in df.columns:
+            df["totalFails"] = df["treasury_fails_deliver"] + df["treasury_fails_receive"]
+
+        print(f"✓ Fetched {len(df)} weeks of settlement fails data")
+
+        return df

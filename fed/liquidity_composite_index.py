@@ -183,6 +183,10 @@ def calculate_fiscal_component(df_fiscal):
     if df_fiscal.empty:
         return pd.Series(dtype=float)
 
+    # Remove duplicate dates by aggregating
+    if df_fiscal.index.duplicated().any():
+        df_fiscal = df_fiscal.groupby(df_fiscal.index).mean()
+
     fiscal_index = pd.Series(0.0, index=df_fiscal.index)
 
     # 1. Fiscal Impulse (MA20, normalized)
@@ -198,8 +202,15 @@ def calculate_fiscal_component(df_fiscal):
         fiscal_index += tga_norm * FISCAL_WEIGHTS['tga']
 
     # 3. Tax Receipts (negative impact on liquidity, invert)
+    # Try Withheld_Tax first, fall back to Total_Taxes
+    tax_col = None
     if 'Withheld_Tax' in df_fiscal.columns:
-        tax_extraction = -df_fiscal['Withheld_Tax']  # Tax = drain
+        tax_col = 'Withheld_Tax'
+    elif 'Total_Taxes' in df_fiscal.columns:
+        tax_col = 'Total_Taxes'
+
+    if tax_col:
+        tax_extraction = -df_fiscal[tax_col]  # Tax = drain
         tax_norm = normalize_series(tax_extraction, method='zscore')
         fiscal_index += tax_norm * FISCAL_WEIGHTS['taxes']
 
@@ -212,6 +223,10 @@ def calculate_monetary_component(df_fed):
     """
     if df_fed.empty:
         return pd.Series(dtype=float)
+
+    # Remove duplicate dates by aggregating
+    if df_fed.index.duplicated().any():
+        df_fed = df_fed.groupby(df_fed.index).mean()
 
     monetary_index = pd.Series(0.0, index=df_fed.index)
 
@@ -239,6 +254,13 @@ def calculate_plumbing_component(df_repo, df_fails):
     Calculates Market Plumbing sub-index.
     Higher = Less stress in market plumbing.
     """
+    # Remove duplicate dates by aggregating (numeric columns only)
+    if not df_repo.empty and df_repo.index.duplicated().any():
+        df_repo = df_repo.groupby(df_repo.index).mean(numeric_only=True)
+
+    if not df_fails.empty and df_fails.index.duplicated().any():
+        df_fails = df_fails.groupby(df_fails.index).mean(numeric_only=True)
+
     plumbing_index = pd.Series(dtype=float)
 
     # Need a common index

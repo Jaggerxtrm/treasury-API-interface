@@ -24,16 +24,24 @@ def calculate_repo_metrics(df_repo: pd.DataFrame) -> pd.DataFrame:
     """
     if df_repo.empty:
         return df_repo
-    
+
     # Daily change in repo usage
     if 'totalAmtAccepted' in df_repo.columns:
         df_repo['repo_change'] = df_repo['totalAmtAccepted'].diff()
-    
-    # Moving averages
+
+    # Moving averages (use LCI-compatible column names)
     if 'totalAmtAccepted' in df_repo.columns:
-        df_repo['ma5_repo'] = df_repo['totalAmtAccepted'].rolling(5).mean()
-        df_repo['ma20_repo'] = df_repo['totalAmtAccepted'].rolling(20).mean()
-    
+        df_repo['MA5_Repo_Accepted'] = df_repo['totalAmtAccepted'].rolling(5).mean()
+        df_repo['MA20_Repo_Accepted'] = df_repo['totalAmtAccepted'].rolling(20).mean()
+
+    # Calculate submission ratio (for LCI Plumbing component)
+    # Ratio = totalAmtSubmitted / operationLimit
+    # This measures how much of the facility capacity is being used
+    if 'totalAmtSubmitted' in df_repo.columns and 'operationLimit' in df_repo.columns:
+        df_repo['submission_ratio'] = df_repo['totalAmtSubmitted'] / df_repo['operationLimit']
+        # Handle division by zero or NaN
+        df_repo['submission_ratio'] = df_repo['submission_ratio'].fillna(0)
+
     return df_repo
 
 
@@ -177,12 +185,28 @@ def main():
     )
     
     # Aggregate data in case of multiple operations per day
+    # Only sum numeric columns, take first for others
     if not df_repo.empty:
-        df_repo = df_repo.groupby(df_repo.index).sum()
+        # Separate numeric and non-numeric columns
+        numeric_cols = df_repo.select_dtypes(include=['number']).columns.tolist()
+        non_numeric_cols = df_repo.select_dtypes(exclude=['number']).columns.tolist()
+
+        # Aggregate: sum numeric, first for non-numeric
+        agg_dict = {col: 'sum' for col in numeric_cols}
+        agg_dict.update({col: 'first' for col in non_numeric_cols})
+
+        df_repo = df_repo.groupby(df_repo.index).agg(agg_dict)
         df_repo = calculate_repo_metrics(df_repo)
 
     if not df_rrp.empty:
-        df_rrp = df_rrp.groupby(df_rrp.index).sum()
+        # Same aggregation logic for RRP
+        numeric_cols = df_rrp.select_dtypes(include=['number']).columns.tolist()
+        non_numeric_cols = df_rrp.select_dtypes(exclude=['number']).columns.tolist()
+
+        agg_dict = {col: 'sum' for col in numeric_cols}
+        agg_dict.update({col: 'first' for col in non_numeric_cols})
+
+        df_rrp = df_rrp.groupby(df_rrp.index).agg(agg_dict)
     
     # Generate report
     generate_report(df_repo, df_rrp)
