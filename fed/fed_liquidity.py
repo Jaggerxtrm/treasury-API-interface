@@ -1122,7 +1122,7 @@ def generate_report(df, series_metadata=None):
     # Export full data
     csv_path = get_output_path("fed_liquidity_full.csv")
     df.to_csv(csv_path)
-    print(f"\n{"="*60}")
+    print(f"\n{'='*60}")
     print(f"Full data exported to {csv_path}")
     
     # Export summary metrics
