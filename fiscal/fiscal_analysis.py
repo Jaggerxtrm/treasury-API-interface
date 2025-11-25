@@ -89,6 +89,7 @@ def fetch_current_gdp():
     """
     Fetches the latest Nominal GDP (Annualized) from FRED.
     Series: GDP (Billions of Dollars, SAAR)
+    Returns: (gdp_value, gdp_date, quarter_label, days_old, is_estimated)
     """
     url = "https://api.stlouisfed.org/fred/series/observations"
     params = {
@@ -96,28 +97,72 @@ def fetch_current_gdp():
         "api_key": FRED_API_KEY,
         "file_type": "json",
         "sort_order": "desc",
-        "limit": 1
+        "limit": 4  # Get last 4 quarters for trend analysis
     }
-    
+
     print(f"Fetching latest GDP from FRED...")
     try:
         response = requests.get(url, params=params)
         response.raise_for_status()
         data = response.json()
-        
+
         if 'observations' in data and data['observations']:
+            latest = data['observations'][0]
+
             # Value is in Billions
-            gdp_billions = float(data['observations'][0]['value'])
+            gdp_billions = float(latest['value'])
             gdp_annual = gdp_billions * 1_000_000_000
-            date = data['observations'][0]['date']
-            print(f"FRED GDP: ${gdp_annual/1e12:.2f}T (as of {date})")
-            return gdp_annual
-            
+            gdp_date = pd.to_datetime(latest['date'])
+
+            # Calculate quarter
+            # FRED dates represent the quarter START (e.g., 2025-04-01 = Q2)
+            # But GDP data is for that quarter, so 2025-04-01 = Q2 2025 data
+            # Month mapping: 1=Q1, 4=Q2, 7=Q3, 10=Q4
+            quarter_num = (gdp_date.month - 1) // 3 + 1
+
+            # For display purposes, FRED convention is date = start of reported quarter
+            # So 2025-04-01 represents Q1 (Jan-Mar) data published in April
+            # Subtract 1 quarter for actual period
+            if quarter_num == 1:
+                actual_quarter = 4
+                actual_year = gdp_date.year - 1
+            else:
+                actual_quarter = quarter_num - 1
+                actual_year = gdp_date.year
+
+            quarter = f"Q{actual_quarter} {actual_year}"
+
+            # Calculate data age
+            today = pd.Timestamp.today()
+            days_old = (today - gdp_date).days
+
+            # Estimate current GDP if data is old (>90 days)
+            is_estimated = False
+            if days_old > 90 and len(data['observations']) >= 2:
+                # Calculate QoQ growth rate from last 2 quarters
+                prev_gdp = float(data['observations'][1]['value'])
+                qoq_growth = (gdp_billions - prev_gdp) / prev_gdp
+
+                # Estimate quarters elapsed
+                quarters_elapsed = days_old / 90  # Approx 90 days per quarter
+
+                # Project forward (simple compound growth)
+                estimated_gdp_billions = gdp_billions * ((1 + qoq_growth) ** quarters_elapsed)
+                estimated_gdp_annual = estimated_gdp_billions * 1_000_000_000
+
+                print(f"FRED GDP: ${gdp_annual/1e12:.2f}T ({quarter}, {days_old} days old)")
+                print(f"Estimated current GDP: ${estimated_gdp_annual/1e12:.2f}T (QoQ growth: {qoq_growth*100:.2f}%)")
+
+                return estimated_gdp_annual, gdp_date, quarter, days_old, True
+            else:
+                print(f"FRED GDP: ${gdp_annual/1e12:.2f}T ({quarter}, {days_old} days old)")
+                return gdp_annual, gdp_date, quarter, days_old, False
+
     except Exception as e:
         print(f"Error fetching GDP from FRED: {e}")
         print(f"Using fallback GDP: ${NOMINAL_GDP_FALLBACK/1e12:.2f}T")
-        
-    return NOMINAL_GDP_FALLBACK
+
+    return NOMINAL_GDP_FALLBACK, None, "Unknown", 0, False
 
 def process_fiscal_analysis(df_trans, df_tga, nominal_gdp):
     """
@@ -293,19 +338,33 @@ def process_fiscal_analysis(df_trans, df_tga, nominal_gdp):
     
     return merged
 
-def generate_report(df, nominal_gdp):
+def generate_report(df, gdp_info):
     """
     Generates console report and CSV.
+    gdp_info: tuple of (gdp_value, gdp_date, quarter, days_old, is_estimated)
     """
+    # Unpack GDP info
+    nominal_gdp, gdp_date, quarter, days_old, is_estimated = gdp_info
+
     # Recent Data
     recent = df.tail(10).copy()
-    
+
     print("\n" + "="*50)
     print("FISCAL ANALYSIS REPORT (Advanced)")
     print("="*50)
-    
-    print(f"Last Date: {recent.index[-1].strftime('%Y-%m-%d')}")
-    print(f"Nominal GDP Used: ${nominal_gdp/1e12:.2f}T")
+
+    print(f"Report Date:     {recent.index[-1].strftime('%Y-%m-%d')}")
+    print(f"Analysis Period: {recent.index[0].strftime('%Y-%m-%d')} to {recent.index[-1].strftime('%Y-%m-%d')}")
+
+    # GDP Info with warning if old
+    gdp_status = "ESTIMATED" if is_estimated else "ACTUAL"
+    print(f"\nNominal GDP:     ${nominal_gdp/1e12:.2f}T ({gdp_status})")
+    print(f"GDP Reference:   {quarter} (published {gdp_date.strftime('%Y-%m-%d')}, {days_old} days ago)")
+
+    if days_old > 120:
+        print(f"⚠️  WARNING: GDP data is {days_old} days old. Consider using estimated value.")
+    if is_estimated:
+        print(f"ℹ️  Note: GDP estimated from last published quarter using trend growth")
     
     # 1. Fiscal Impulse Overview
     print("\n--- FISCAL IMPULSE (Fiscal Week Aligned) ---")
@@ -356,24 +415,25 @@ def generate_report(df, nominal_gdp):
 
 def main():
     print("Starting Advanced Fiscal Analysis...")
-    
+
     # Fetch
     df_trans, df_tga = fetch_dts_data()
-    
+
     if df_trans.empty:
         print("No transaction data fetched.")
         return
 
     print(f"Fetched {len(df_trans)} transactions and {len(df_tga)} TGA records.")
-    
-    # Fetch GDP
-    current_gdp = fetch_current_gdp()
-    
+
+    # Fetch GDP (returns tuple)
+    gdp_info = fetch_current_gdp()
+    current_gdp = gdp_info[0]  # Extract value for calculations
+
     # Process
     analysis_df = process_fiscal_analysis(df_trans, df_tga, current_gdp)
-    
-    # Report
-    generate_report(analysis_df, current_gdp)
+
+    # Report (pass full GDP info tuple)
+    generate_report(analysis_df, gdp_info)
 
 if __name__ == "__main__":
     main()

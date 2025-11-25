@@ -2,5 +2,3 @@ requests
 pandas
 matplotlib
 numpy
-seaborn
-plotly
