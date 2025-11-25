@@ -101,18 +101,17 @@ def fetch_all_data():
         if 'last_update' in meta and meta['last_update']:
             series_metadata[series_id] = pd.to_datetime(meta['last_update'])
     
-    # Load TGA data
+    # Load TGA data and join properly with outer join
     tga_series = load_tga_data()
     if not tga_series.empty:
-        df["TGA_Balance"] = tga_series
+        # Use outer join to preserve all dates
+        df = df.join(tga_series, how='outer')
         series_metadata['TGA'] = tga_series.index[-1]
+        print("Merging data...")
     
-    print("Merging data...")
-    # Forward fill weekly data for daily alignment
-    weekly_cols = [SERIES_MAP[sid] for sid in SERIES_MAP if SERIES_FREQUENCIES.get(sid) == "weekly"]
-    for col in weekly_cols:
-        if col in df.columns:
-            df[col] = df[col].ffill()
+    # Forward fill ALL data to propagate values correctly
+    # This handles both weekly data (Fed Balance Sheet) and TGA alignment
+    df = df.ffill()
     
     # Ensure START_DATE is datetime for comparison and filter
     start_dt = pd.to_datetime(START_DATE)

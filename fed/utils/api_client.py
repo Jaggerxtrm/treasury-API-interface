@@ -81,6 +81,9 @@ class FREDClient:
             df.set_index("date", inplace=True)
             series = df["value"]
             
+            # Drop NaN values to prevent propagation in outer joins
+            series = series.dropna()
+            
             # Get last update date
             last_update = observations[-1].get("date")
             
