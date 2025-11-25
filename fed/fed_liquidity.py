@@ -1,114 +1,34 @@
-import requests
+"""  
+Fed Liquidity Monitor - Enhanced Temporal Analysis
+Comprehensive analysis of Fed liquidity with MTD/QTD/3M metrics,
+spread monitoring, regime detection, and forecasting.
+
+Refactored to use shared utilities.
+"""
+
 import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
 import sys
+import os
 
-# Constants
-FRED_API_KEY = "319c755ba8b781762ed9736f0b95604d"
-FRED_BASE_URL = "https://api.stlouisfed.org/fred/series/observations"
-START_DATE = "2022-01-01"
+# Add fed directory to path
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-# Series Mapping
-SERIES_MAP = {
-    # Liquidity Components
-    "RRPONTSYD": "RRP_Balance",      # Overnight Reverse Repo
-    "RPONTSYD": "Repo_Ops_Balance",  # Overnight Repo Operations (Liquidity Injection)
-    "WALCL": "Fed_Total_Assets",     # Total Assets (Less Eliminations from Consolidation)
-    "WSHOMCB": "Fed_MBS_Holdings",   # MBS Holdings
-    "TREAST": "Fed_Treasury_Holdings", # Treasury Holdings
-    "WSHOBL": "Fed_Bill_Holdings",   # T-Bills Held Outright (QE/Bill-Buying)
+# Import from utilities
+from config import (
+    FRED_SERIES_MAP as SERIES_MAP,
+    SERIES_FREQUENCIES,
+    DEFAULT_START_DATE as START_DATE,
+    ROLLING_3M_DAYS,
+    SPIKE_THRESHOLD_STD,
+    SPIKE_ABSOLUTE_BPS
+)
+from utils.api_client import FREDClient
+from utils.data_loader import load_tga_data, get_output_path
 
-    # Rates & Spreads
-    "IORB": "IORB_Rate",             # Interest on Reserve Balances
-    "EFFR": "EFFR_Rate",             # Effective Federal Funds Rate
-    "SOFR": "SOFR_Rate",             # Secured Overnight Financing Rate
-    "TGCRRATE": "TGCR_Rate",         # Tri-Party General Collateral Rate
-    # Note: BGCR not available on FRED, use TGCR as proxy for GC rates
-
-    # UST Yields (Treasury Constant Maturity)
-    "DGS2": "UST_2Y",                # 2-Year Treasury Constant Maturity Rate
-    "DGS5": "UST_5Y",                # 5-Year Treasury Constant Maturity Rate
-    "DGS10": "UST_10Y",              # 10-Year Treasury Constant Maturity Rate
-    "DGS30": "UST_30Y",              # 30-Year Treasury Constant Maturity Rate
-    "T10Y2Y": "Curve_10Y2Y",         # 10-Year minus 2-Year Treasury Spread
-
-    # Inflation Expectations (TIPS Breakevens)
-    "T10YIE": "Breakeven_10Y",       # 10-Year Breakeven Inflation Rate
-    "T5YIE": "Breakeven_5Y",         # 5-Year Breakeven Inflation Rate
-
-    # Liquidity Support
-    "SWPT": "Swap_Lines",            # Central Bank Liquidity Swaps
-    "SRFTSYD": "SRF_Rate",           # Standing Repo Facility Minimum Bid Rate
-}
-
-# Expected update frequencies (for freshness checks)
-SERIES_FREQUENCIES = {
-    # Daily series (expect T-1 or T-2 lag)
-    "RRPONTSYD": "daily",
-    "SOFR": "daily",
-    "EFFR": "daily",
-    "IORB": "policy",  # Changes only on FOMC dates
-    "DGS2": "daily",
-    "DGS5": "daily",
-    "DGS10": "daily",
-    "DGS30": "daily",
-    "T10Y2Y": "daily",
-    "TGCRRATE": "daily",
-    "T10YIE": "daily",
-    "T5YIE": "daily",
-
-    # Weekly series (updated Wednesdays, expect T-2 to T-9 lag)
-    "WALCL": "weekly",
-    "WSHOMCB": "weekly",
-    "TREAST": "weekly",
-    "WSHOBL": "weekly",
-    "RPONTSYD": "daily",
-    "SWPT": "weekly",
-    "SRFTSYD": "daily"
-}
-
-def fetch_fred_series(series_id, start_date=START_DATE):
-    """
-    Fetches a single series from FRED API.
-    Returns: (series, last_update_date)
-    """
-    params = {
-        "series_id": series_id,
-        "api_key": FRED_API_KEY,
-        "file_type": "json",
-        "observation_start": start_date,
-        "sort_order": "asc"
-    }
-
-    print(f"Fetching {series_id} ({SERIES_MAP.get(series_id, series_id)})...")
-    try:
-        response = requests.get(FRED_BASE_URL, params=params)
-        response.raise_for_status()
-        data = response.json()
-
-        if "observations" not in data:
-            print(f"No observations found for {series_id}")
-            return pd.Series(dtype=float), None
-
-        df = pd.DataFrame(data["observations"])
-        df["date"] = pd.to_datetime(df["date"])
-        df["value"] = pd.to_numeric(df["value"], errors="coerce")
-
-        # Set index to date
-        series = df.set_index("date")["value"]
-        series.name = SERIES_MAP.get(series_id, series_id)
-
-        # Get last update date
-        last_update = series.dropna().index[-1] if not series.dropna().empty else None
-
-        # Handle frequency (some are weekly, fill forward for daily alignment)
-        # We'll handle alignment in the merge step, but basic cleaning here is good.
-        return series.dropna(), last_update
-
-    except Exception as e:
-        print(f"Error fetching {series_id}: {e}")
-        return pd.Series(dtype=float), None
+# FRED client instance (reusable)
+fred_client = FREDClient()
 
 def check_data_freshness(series_metadata, report_date=None):
     """
@@ -160,79 +80,41 @@ def check_data_freshness(series_metadata, report_date=None):
 
     return freshness_report, warnings
 
-def load_tga_data(csv_path=None):
-    """
-    Loads TGA balance data from fiscal analysis CSV.
-    """
-    import os
-
-    if csv_path is None:
-        # Try multiple locations
-        search_paths = [
-            "outputs/fiscal/fiscal_analysis_full.csv",
-            "../outputs/fiscal/fiscal_analysis_full.csv",
-            "fiscal/outputs/fiscal/fiscal_analysis_full.csv",
-            "fiscal_analysis_full.csv",  # Fallback to old location
-        ]
-        
-        for path in search_paths:
-            if os.path.exists(path):
-                csv_path = path
-                break
-        
-        if csv_path is None:
-            print("TGA data file not found in any expected location")
-            return pd.Series(dtype=float)
-
-    try:
-        print(f"Loading TGA data from {csv_path}...")
-        df_fiscal = pd.read_csv(csv_path, index_col=0, parse_dates=True)
-
-        if 'TGA_Balance' in df_fiscal.columns:
-            tga_series = df_fiscal['TGA_Balance'].copy()
-            tga_series.name = 'TGA_Balance'
-            print(f"TGA data loaded: {len(tga_series)} records")
-            return tga_series
-        else:
-            print("TGA_Balance column not found in fiscal CSV")
-            return pd.Series(dtype=float)
-
-    except Exception as e:
-        print(f"Could not load TGA data: {e}")
-        return pd.Series(dtype=float)
+# TGA loading is now handled by utils.data_loader.load_tga_data()
+# Keeping this as a wrapper for compatibility
+def load_tga_data_wrapper(csv_path=None):
+    """Wrapper for backward compatibility."""
+    return load_tga_data(csv_path)
 
 def fetch_all_data():
     """
     Fetches all required series and merges them into a single DataFrame.
     Returns: (df, series_metadata)
     """
-    all_series = []
+    # Use FREDClient to fetch multiple series
+    print("Starting Fed Liquidity Monitor...")
+    df, api_metadata = fred_client.fetch_multiple_series(SERIES_MAP, START_DATE)
+    
+    # Convert metadata to expected format (series_id -> last_update_date)
     series_metadata = {}
-
-    for series_id in SERIES_MAP.keys():
-        s, last_date = fetch_fred_series(series_id)
-        all_series.append(s)
-        if last_date:
-            series_metadata[series_id] = last_date
-
-    # Load TGA from fiscal analysis
+    for series_id, meta in api_metadata.items():
+        if 'last_update' in meta and meta['last_update']:
+            series_metadata[series_id] = pd.to_datetime(meta['last_update'])
+    
+    # Load TGA data
     tga_series = load_tga_data()
     if not tga_series.empty:
-        all_series.append(tga_series)
-        if not tga_series.empty:
-            series_metadata['TGA'] = tga_series.index[-1]
-
+        df["TGA_Balance"] = tga_series
+        series_metadata['TGA'] = tga_series.index[-1]
+    
     print("Merging data...")
-    # Merge using outer join to keep all dates, then sort
-    df = pd.concat(all_series, axis=1).sort_index()
-
-    # Forward fill weekly data (Balance Sheet is weekly - Wednesday)
-    # RRP and Rates are daily (business days)
-    # We forward fill to propagate the last known value (e.g. Balance Sheet holds for the week)
-    df = df.ffill()
-
-    # Filter to start date again just in case
-    # Ensure START_DATE is datetime for comparison
+    # Forward fill weekly data for daily alignment
+    weekly_cols = [SERIES_MAP[sid] for sid in SERIES_MAP if SERIES_FREQUENCIES.get(sid) == "weekly"]
+    for col in weekly_cols:
+        if col in df.columns:
+            df[col] = df[col].ffill()
+    
+    # Ensure START_DATE is datetime for comparison and filter
     start_dt = pd.to_datetime(START_DATE)
     df = df[df.index >= start_dt]
 
@@ -1239,7 +1121,7 @@ def generate_report(df, series_metadata=None):
         print(recent[cols].sort_index(ascending=False).to_string(float_format="{:,.2f}".format))
     
     # Export full data
-    csv_path = "outputs/fed/fed_liquidity_full.csv"
+    csv_path = get_output_path("fed_liquidity_full.csv")
     df.to_csv(csv_path)
     print(f"\n{"="*60}")
     print(f"Full data exported to {csv_path}")
@@ -1286,7 +1168,7 @@ def generate_report(df, series_metadata=None):
     summary_data['YoY'].append('N/A')
     
     summary_df = pd.DataFrame(summary_data)
-    summary_csv = "outputs/fed/fed_liquidity_summary.csv"
+    summary_csv = get_output_path("fed_liquidity_summary.csv")
     summary_df.to_csv(summary_csv, index=False)
     print(f"Summary metrics exported to {summary_csv}")
     print("="*60)
