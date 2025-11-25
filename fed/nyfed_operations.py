@@ -176,9 +176,13 @@ def main():
         operation_type="Reverse Repo"
     )
     
-    # Calculate metrics
+    # Aggregate data in case of multiple operations per day
     if not df_repo.empty:
+        df_repo = df_repo.groupby(df_repo.index).sum()
         df_repo = calculate_repo_metrics(df_repo)
+
+    if not df_rrp.empty:
+        df_rrp = df_rrp.groupby(df_rrp.index).sum()
     
     # Generate report
     generate_report(df_repo, df_rrp)
