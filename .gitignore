@@ -1,7 +1,7 @@
 # Outputs (generated files)
 outputs/
 *.csv
-*.json
+
 !data/samples/*.json
 
 # Data cache
@@ -27,7 +27,7 @@ build/
 *.swp
 *.swo
 *~
-.claude/
+
 
 # OS
 .DS_Store
