@@ -1,25 +1,22 @@
-# Outputs (generated files)
-outputs/
-*.csv
-
-!data/samples/*.json
-
-# Data cache
-data/cache/
-
 # Python
-.venv/
-venv/
 __pycache__/
-*.pyc
-*.pyo
-*.pyd
-.Python
+*.py[cod]
+*$py.class
 *.so
-*.egg
-*.egg-info/
-dist/
-build/
+.Python
+venv/
+env/
+ENV/
+
+# Data
+*.db
+*.sqlite
+*.duckdb
+data/cache/
+outputs/fiscal/*.csv
+outputs/fed/*.csv
+outputs/composite/*.csv
+*.log
 
 # IDE
 .vscode/
@@ -27,18 +24,21 @@ build/
 *.swp
 *.swo
 *~
-.mcp.json
-
 
 # OS
 .DS_Store
 Thumbs.db
 
-# Logs
-*.log
+# AI Tools & IDE
+.claude/
+.serena/
+.cursor/
+.gemini/
+.mcp.json
 
-# Keep directory structure
-!outputs/.gitkeep
-!outputs/*/.gitkeep
-!data/.gitkeep
-!data/*/.gitkeep
+# Testing & Type Checking
+.pytest_cache/
+.mypy_cache/
+
+# Temporary
+*.tmp

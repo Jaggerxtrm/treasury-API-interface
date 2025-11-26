@@ -634,14 +634,22 @@ def calculate_tga_forecast(df, days_forward=5):
     2. Expected spending patterns
     3. Recent change rate
     """
-    if len(df) < 20:
+    if df.empty or len(df) < 20:
+        return np.nan
+    
+    # Check TGA_Balance column exists and has valid data
+    if 'TGA_Balance' not in df.columns:
+        return np.nan
+    
+    tga_series = df['TGA_Balance'].dropna()
+    if len(tga_series) < 10:
         return np.nan
     
     # Calculate recent daily change
-    recent_change = df['TGA_Balance'].diff().tail(10).mean()
+    recent_change = tga_series.diff().tail(10).mean()
     
     # Simple linear projection
-    current_tga = df['TGA_Balance'].iloc[-1]
+    current_tga = tga_series.iloc[-1]
     forecast = current_tga + (recent_change * days_forward)
     
     return forecast
@@ -655,11 +663,19 @@ def calculate_implied_liquidity_effect(df):
     Liquidity Effect = -ΔtGA + Fed Operations
     (TGA drain = liquidity injection)
     """
-    if len(df) < 5:
+    if df.empty or len(df) < 5:
+        return np.nan
+    
+    # Check TGA_Balance column exists and has valid data
+    if 'TGA_Balance' not in df.columns:
+        return np.nan
+    
+    tga_series = df['TGA_Balance'].dropna()
+    if len(tga_series) < 5:
         return np.nan
     
     # Expected TGA change (based on recent pattern)
-    recent_tga_change = df['TGA_Balance'].diff().tail(5).mean()
+    recent_tga_change = tga_series.diff().tail(5).mean()
     expected_tga_change = recent_tga_change * 5  # Next week
     
     # Negative TGA change = positive liquidity
@@ -887,6 +903,17 @@ def process_fiscal_analysis(df_trans, df_tga, nominal_gdp):
     daily_spending['Household_Spending'] = daily_spending[household_cols].sum(axis=1) if household_cols else 0
 
     # ==========================================================================
+    # HOUSEHOLD SHARE CALCULATION - Add to daily metrics for auditability
+    # ==========================================================================
+    
+    # Calculate household share as % of total spending (outlays)
+    # Formula: household_outlays / total_outlays * 100
+    # Valid range: [0, 100]% (cannot be negative even if net_impulse is negative)
+    daily_spending['Household_Share_Pct'] = (
+        daily_spending['Household_Spending'] / daily_spending['Total_Spending'] * 100
+    ).fillna(0)
+
+    # ==========================================================================
     # TAX RECEIPTS ANALYSIS (DEPOSITS)
     # ==========================================================================
     
@@ -928,8 +955,23 @@ def process_fiscal_analysis(df_trans, df_tga, nominal_gdp):
     
     merged = pd.concat([daily_spending, daily_taxes, daily_tga], axis=1).fillna(0).sort_index()
     
+    # ==========================================================================
+    # GDP METADATA - Save for transparency and auditability
+    # ==========================================================================
+    
+    merged['GDP_Used'] = nominal_gdp
+    
     # Net Impulse (Spending - Taxes)
     merged['Net_Impulse'] = merged['Total_Spending'] - merged['Total_Taxes']
+
+    # ==========================================================================
+    # VALIDATION: Household Share bounds
+    # ==========================================================================
+    
+    if 'Household_Share_Pct' in merged.columns:
+        invalid_shares = merged[(merged['Household_Share_Pct'] < 0) | (merged['Household_Share_Pct'] > 100)]
+        if len(invalid_shares) > 0:
+            print(f"⚠️  WARNING: Found {len(invalid_shares)} records with household_share outside [0,100]% range")
 
     # ==========================================================================
     # FISCAL CALENDAR FLAGS
@@ -1091,11 +1133,19 @@ def generate_report(df, weekly_df, gdp_info):
     print(f"📅 Fiscal Week:     #{int(latest['Fiscal_Week'])} of FY{int(latest['Fiscal_Year'])}")
     print(f"📅 Analysis Period: {period_start.strftime('%Y-%m-%d')} to {period_end.strftime('%Y-%m-%d')} (Wed-Wed aligned)")
     
-    # GDP Info with sensitivity analysis
+    # ==========================================================================
+    # GDP INFORMATION - Enhanced with estimation details
+    # ==========================================================================
+    
     gdp_status = "ESTIMATED" if is_estimated else "ACTUAL"
-    print(f"\n💰 Nominal GDP:     ${nominal_gdp/1e12:.2f}T ({gdp_status})")
+    print(f"\n💰 Nominal GDP:     ${nominal_gdp/1e12:.3f}T ({gdp_status})")
     if gdp_date:
-        print(f"💰 GDP Reference:   {quarter} (published {gdp_date.strftime('%Y-%m-%d')}, {days_old} days ago)")
+        print(f"💰 GDP Reference:   {quarter}")
+        print(f"    Published:      {gdp_date.strftime('%Y-%m-%d')} ({days_old} days ago)")
+    
+    if is_estimated:
+        print(f"    ⚠️  GDP ESTIMATED: Using QoQ growth extrapolation")
+        print(f"    Note: All %GDP metrics use this extrapolated value")
     
     if days_old > 120:
         print(f"⚠️  WARNING: GDP data is {days_old} days old.")

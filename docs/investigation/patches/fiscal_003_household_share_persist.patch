@@ -1,0 +1,36 @@
+--- a/fiscal/fiscal_analysis.py
++++ b/fiscal/fiscal_analysis.py
+@@ -899,6 +899,18 @@ def process_fiscal_analysis(df_trans, df_tga, nominal_gdp):
+     household_cols = [col for col in daily_spending.columns
+                      if any(hh in col for hh in ['SSA', 'Medicare', 'VA', 'Unemployment',
+                                                   'Tax_Refunds_Individual', 'SNAP', 'Education', 'Housing'])]
+     daily_spending['Household_Spending'] = daily_spending[household_cols].sum(axis=1) if household_cols else 0
++
++    # ==========================================================================
++    # HOUSEHOLD SHARE CALCULATION - Add to daily metrics for auditability
++    # ==========================================================================
++
++    # Calculate household share as % of total spending (outlays)
++    # Formula: household_outlays / total_outlays * 100
++    # Valid range: [0, 100]% (cannot be negative even if net_impulse is negative)
++    daily_spending['Household_Share_Pct'] = (
++        daily_spending['Household_Spending'] / daily_spending['Total_Spending'] * 100
++    ).fillna(0)
+
+     # ==========================================================================
+     # TAX RECEIPTS ANALYSIS (DEPOSITS)
+@@ -945,6 +957,14 @@ def process_fiscal_analysis(df_trans, df_tga, nominal_gdp):
+     # Net Impulse (Spending - Taxes)
+     merged['Net_Impulse'] = merged['Total_Spending'] - merged['Total_Taxes']
++
++    # ==========================================================================
++    # VALIDATION: Household Share bounds
++    # ==========================================================================
++
++    invalid_shares = merged[(merged['Household_Share_Pct'] < 0) | (merged['Household_Share_Pct'] > 100)]
++    if len(invalid_shares) > 0:
++        print(f"⚠️  WARNING: Found {len(invalid_shares)} records with household_share outside [0,100]% range")
++        print(invalid_shares[['Household_Share_Pct', 'Household_Spending', 'Total_Spending', 'Net_Impulse']].head())
+
+     # ==========================================================================
+     # FISCAL CALENDAR FLAGS

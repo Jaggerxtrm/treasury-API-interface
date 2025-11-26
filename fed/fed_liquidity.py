@@ -177,7 +177,8 @@ def fetch_all_data():
                 df[col] = df[col].ffill(limit=3)
             
             print("✓ NY Fed reference rates integrated (fills FRED gaps + 3-day forward fill)")
-            series_metadata['NYFED_RATES'] = nyfed_rates.index[-1]
+            if not nyfed_rates.empty:
+                series_metadata['NYFED_RATES'] = nyfed_rates.index[-1]
         except Exception as e:
             print(f"⚠️  Could not load NY Fed rates: {e}")
     else:
@@ -283,6 +284,28 @@ def calculate_metrics(df):
         # WALCL is in Millions
         pass
 
+    # ==========================================================================
+    # HANDLE NON-TRADING DAYS - Forward-fill RRP and TGA
+    # ==========================================================================
+    
+    # Flag imputed values BEFORE forward-filling
+    if 'RRP_Balance' in df.columns:
+        df['RRP_Imputed'] = df['RRP_Balance'].isna()
+        # Forward-fill RRP for weekends/holidays
+        df['RRP_Balance'] = df['RRP_Balance'].ffill()
+        df['RRP_Balance_M'] = df['RRP_Balance'] * 1000  # Recalculate after ffill
+    
+    if 'TGA_Balance' in df.columns:
+        df['TGA_Imputed'] = df['TGA_Balance'].isna()
+        # Forward-fill TGA for rare NULL days
+        df['TGA_Balance'] = df['TGA_Balance'].ffill()
+    
+    # Count imputed values for logging
+    rrp_imputed_count = df['RRP_Imputed'].sum() if 'RRP_Imputed' in df.columns else 0
+    tga_imputed_count = df['TGA_Imputed'].sum() if 'TGA_Imputed' in df.columns else 0
+    if rrp_imputed_count > 0 or tga_imputed_count > 0:
+        print(f"✓ Forward-filled {rrp_imputed_count} RRP values and {tga_imputed_count} TGA values for non-trading days")
+
     # 1. Calculate Effective Policy Stance (needs _M versions)
     df = calculate_effective_policy_stance(df)
 
@@ -291,6 +314,15 @@ def calculate_metrics(df):
         # Check if TGA data has actual values (not all NaN)
         if df['TGA_Balance'].notna().any():
             df['Net_Liquidity'] = df['Fed_Total_Assets'] - df['RRP_Balance_M'] - df['TGA_Balance']
+            
+            # Flag Net Liquidity as imputed if either RRP or TGA was imputed
+            if 'RRP_Imputed' in df.columns and 'TGA_Imputed' in df.columns:
+                df['Net_Liq_Imputed'] = df['RRP_Imputed'] | df['TGA_Imputed']
+            elif 'RRP_Imputed' in df.columns:
+                df['Net_Liq_Imputed'] = df['RRP_Imputed']
+            elif 'TGA_Imputed' in df.columns:
+                df['Net_Liq_Imputed'] = df['TGA_Imputed']
+            
             print("✓ Net Liquidity calculated: Fed Assets - RRP - TGA")
             
             # ADDED: Net Liquidity reconciliation check and debug logging
@@ -716,10 +748,17 @@ def detect_spread_spikes(df, spread_col='Spread_SOFR_IORB', threshold_std=2.0, a
     # Current status
     current_spike = spikes_combined.iloc[-1] if len(spikes_combined) > 0 else False
     
-    # Severity classification
+    # Severity classification - with defensive checks for empty/NaN values
+    if len(spread) == 0 or len(ma20) == 0 or len(std20) == 0:
+        return {}
+    
     current_spread = spread.iloc[-1]
     current_ma = ma20.iloc[-1]
     current_std = std20.iloc[-1]
+    
+    # Handle NaN values in rolling calculations
+    if pd.isna(current_spread) or pd.isna(current_ma) or pd.isna(current_std):
+        return {}
     
     if current_spread > current_ma + 3 * current_std:
         severity = "CRITICAL"

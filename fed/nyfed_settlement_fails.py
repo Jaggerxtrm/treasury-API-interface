@@ -85,6 +85,10 @@ def generate_report(df: pd.DataFrame) -> None:
     report = ReportGenerator("SETTLEMENT FAILS REPORT", width=60)
     report.print_header("SETTLEMENT FAILS REPORT")
 
+    if df.empty or len(df.index) == 0:
+        print("No data available for report")
+        return
+    
     last_row = df.iloc[-1]
     last_date = df.index[-1].strftime('%Y-%m-%d')
 

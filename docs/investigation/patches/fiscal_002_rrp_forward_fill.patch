@@ -1,0 +1,33 @@
+--- a/fed/fed_liquidity.py
++++ b/fed/fed_liquidity.py
+@@ -XXX,X +XXX,X @@ def process_fed_liquidity_data(df):
+
+     # Calculate Net Liquidity
+     # Net Liquidity = Fed Assets - RRP - TGA
++
++    # ==========================================================================
++    # HANDLE NON-TRADING DAYS - Forward-fill RRP and TGA
++    # ==========================================================================
++
++    # Flag imputed values BEFORE forward-filling
++    df['RRP_Imputed'] = df['RRP_Balance'].isna()
++    df['TGA_Imputed'] = df['TGA_Balance'].isna()
++
++    # Forward-fill RRP and TGA for weekends/holidays
++    # Use method='ffill' to carry forward last valid value
++    df['RRP_Balance'] = df['RRP_Balance'].fillna(method='ffill')
++    df['TGA_Balance'] = df['TGA_Balance'].fillna(method='ffill')
++
++    # Convert RRP from Billions to Millions (if needed)
++    if 'RRP_Balance_M' not in df.columns:
++        df['RRP_Balance_M'] = df['RRP_Balance'] * 1000
++
++    # Recalculate Net Liquidity with imputed values
+     df['Net_Liquidity'] = df['Fed_Total_Assets'] - df['RRP_Balance_M'] - df['TGA_Balance']
++
++    # Flag Net Liquidity as imputed if either RRP or TGA was imputed
++    df['Net_Liq_Imputed'] = df['RRP_Imputed'] | df['TGA_Imputed']
++
++    print(f"✓ Forward-filled {df['RRP_Imputed'].sum()} RRP values and {df['TGA_Imputed'].sum()} TGA values for non-trading days")
+
+     return df

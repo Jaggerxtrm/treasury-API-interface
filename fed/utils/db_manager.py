@@ -29,9 +29,15 @@ class TimeSeriesDB:
     def initialize_table_from_df(self, df, table_name, key_col='record_date'):
         """
         Create a table based on the DataFrame schema if it doesn't exist.
+        If table exists but schema doesn't match, recreate it.
         """
         if self._table_exists(table_name):
-            return
+            # Check if schema matches
+            if not self._schema_matches(df, table_name):
+                print(f"⚠️  Schema mismatch for '{table_name}', recreating table...")
+                self.conn.execute(f"DROP TABLE {table_name}")
+            else:
+                return
 
         print(f"📝 Creating table '{table_name}'...")
         # DuckDB can infer schema from DataFrame
@@ -41,8 +47,22 @@ class TimeSeriesDB:
         # Note: DuckDB indexes are primarily for performance, constraints are limited.
         # We will handle deduplication in the upsert logic.
         print(f"✅ Table '{table_name}' created.")
+    
+    def _schema_matches(self, df, table_name):
+        """
+        Check if DataFrame columns match table columns (ignoring order).
+        """
+        try:
+            table_cols = self.conn.execute(
+                f"SELECT column_name FROM information_schema.columns WHERE table_name = '{table_name}'"
+            ).fetchall()
+            table_cols = set(col[0] for col in table_cols)
+            df_cols = set(df.columns.tolist())
+            return table_cols == df_cols
+        except Exception:
+            return False
 
-    def upsert_data(self, df, table_name, key_col='record_date'):
+    def upsert_data(self, df, table_name, key_col='record_date', force_recreate=False):
         """
         Insert new data, updating existing records if they match the key_col.
         Strategy: Delete existing records for the dates in df, then insert new ones.
@@ -52,15 +72,17 @@ class TimeSeriesDB:
             print("⚠️ No data to upsert.")
             return
 
-        # Ensure table exists
-        self.initialize_table_from_df(df, table_name, key_col)
-
         # Validate that key_col exists in the DataFrame
         if key_col not in df.columns:
             raise ValueError(f"Key column '{key_col}' not found in DataFrame. Available columns: {df.columns.tolist()}")
         
-        # Standardize date format to match DB (usually timestamp)
-        # DuckDB handles pandas timestamps well.
+        # Force recreate if requested
+        if force_recreate and self._table_exists(table_name):
+            print(f"🔄 Force recreating table '{table_name}'...")
+            self.conn.execute(f"DROP TABLE {table_name}")
+        
+        # Ensure table exists
+        self.initialize_table_from_df(df, table_name, key_col)
 
         try:
             # 1. Identify keys to be updated
@@ -82,10 +104,27 @@ class TimeSeriesDB:
             print(f"💾 Upserted {len(df)} records into '{table_name}'")
             
         except Exception as e:
-            print(f"❌ Error during upsert: {e}")
-            raise
+            # If schema mismatch, try recreating the table
+            if "Conversion Error" in str(e) or "Type Error" in str(e) or "Binder Error" in str(e):
+                print(f"⚠️  Schema mismatch detected, recreating table '{table_name}'...")
+                try:
+                    self.conn.unregister('df_view')
+                except:
+                    pass
+                # Re-register the DataFrame and recreate table
+                self.conn.register('df_new', df)
+                self.conn.execute(f"DROP TABLE IF EXISTS {table_name}")
+                self.conn.execute(f"CREATE TABLE {table_name} AS SELECT * FROM df_new")
+                self.conn.unregister('df_new')
+                print(f"💾 Recreated and inserted {len(df)} records into '{table_name}'")
+            else:
+                print(f"❌ Error during upsert: {e}")
+                raise
         finally:
-            self.conn.unregister('df_view')
+            try:
+                self.conn.unregister('df_view')
+            except:
+                pass
 
     def get_latest_date(self, table_name, key_col='record_date'):
         """

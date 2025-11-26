@@ -1,0 +1,12 @@
+{
+  "timestamp": "2025-11-26T23:58:35.270418",
+  "database": "database/treasury_data.duckdb",
+  "summary": {
+    "total_issues": 0,
+    "total_warnings": 0,
+    "status": "PASS"
+  },
+  "issues": [],
+  "warnings": [],
+  "info": []
+}

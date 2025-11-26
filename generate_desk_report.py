@@ -77,7 +77,7 @@ def load_all_data() -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, Dict]:
             'gdp_is_estimated': gdp_info[4],
             'records': len(fiscal_df),
             'weekly_records': len(weekly_fiscal_df),
-            'last_date': fiscal_df.index[-1].strftime('%Y-%m-%d')
+            'last_date': fiscal_df.index[-1].strftime('%Y-%m-%d') if not fiscal_df.empty else None
         }
         print(f"✓ Fiscal: {len(fiscal_df)} records through {metadata['fiscal']['last_date']}")
     except Exception as e:
@@ -93,7 +93,7 @@ def load_all_data() -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, Dict]:
 
         metadata['fed'] = {
             'records': len(fed_df),
-            'last_date': fed_df.index[-1].strftime('%Y-%m-%d'),
+            'last_date': fed_df.index[-1].strftime('%Y-%m-%d') if not fed_df.empty else None,
             'series_count': len(series_metadata)
         }
         print(f"✓ Fed: {len(fed_df)} records through {metadata['fed']['last_date']}")
@@ -109,7 +109,7 @@ def load_all_data() -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, Dict]:
         from fed import ofr_analysis
         ofr_df = ofr_analysis.main()
 
-        if not ofr_df.empty:
+        if not ofr_df.empty and len(ofr_df.index) > 0:
             metadata['ofr'] = {
                 'records': len(ofr_df),
                 'last_date': ofr_df.index[-1].strftime('%Y-%m-%d')
@@ -183,7 +183,9 @@ def calculate_integrated_flows(
 
     # 2. Tax Receipts (weekly sum, negative because it's a drain)
     if 'Total_Taxes' in fiscal_recent.columns:
-        flows['tax_receipts_weekly'] = -fiscal_recent.loc[common_dates, 'Total_Taxes'].rolling(5).sum()
+        # Clean NaN values before rolling calculation to prevent propagation
+        tax_series = fiscal_recent.loc[common_dates, 'Total_Taxes'].fillna(0)
+        flows['tax_receipts_weekly'] = -tax_series.rolling(5, min_periods=1).sum()
     else:
         flows['tax_receipts_weekly'] = 0
 

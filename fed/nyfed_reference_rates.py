@@ -67,7 +67,7 @@ def generate_report(merged_df: pd.DataFrame) -> None:
     """
     Generate a simple report on reference rates.
     """
-    if merged_df.empty:
+    if merged_df.empty or len(merged_df.index) == 0:
         print("No data to report")
         return
     

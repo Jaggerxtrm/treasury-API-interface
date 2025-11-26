@@ -7,6 +7,7 @@ Refactored to use shared utilities.
 
 import pandas as pd
 import numpy as np
+import json
 import sys
 import os
 
@@ -148,7 +149,7 @@ def generate_report(df_repo: pd.DataFrame, df_rrp: pd.DataFrame) -> None:
     # Main header
     report.print_header("NY FED OPERATIONS REPORT")
     
-    if not df_repo.empty:
+    if not df_repo.empty and len(df_repo.index) > 0:
         last_repo = df_repo.iloc[-1]
         last_date = df_repo.index[-1].strftime('%Y-%m-%d')
         
@@ -363,10 +364,15 @@ def generate_report(df_repo: pd.DataFrame, df_rrp: pd.DataFrame) -> None:
             print(df_repo_save.head(2))
 
             # FIXED: Convert ALL columns to appropriate types before upsert
-            # Handle object columns (convert to string except 'details')
+            # Handle object columns - convert nested structures to JSON strings
             object_cols = df_repo_save.select_dtypes(include=['object']).columns.tolist()
             for col in object_cols:
-                if col != 'details':  # Keep details as list of dicts for DuckDB MAP type
+                # Convert nested structures (lists, dicts) to JSON strings
+                if col in ['details', 'propositions']:
+                    df_repo_save[col] = df_repo_save[col].apply(
+                        lambda x: json.dumps(x) if isinstance(x, (list, dict)) else str(x) if pd.notna(x) else None
+                    )
+                else:
                     df_repo_save[col] = df_repo_save[col].astype(str)
 
             # Handle numeric columns that might have been converted to float due to NaN
@@ -388,13 +394,15 @@ def generate_report(df_repo: pd.DataFrame, df_rrp: pd.DataFrame) -> None:
             elif 'date' in df_rrp_save.columns:
                 df_rrp_save = df_rrp_save.rename(columns={'date': 'record_date'})
 
-            # FIXED: Convert problematic columns to string, except 'details' which is MAP type
-            # DuckDB expects MAP(VARCHAR, VARCHAR) for 'details', not VARCHAR
+            # FIXED: Convert ALL object columns to appropriate types before upsert
             object_cols = df_rrp_save.select_dtypes(include=['object']).columns.tolist()
-
-            # Convert object columns to string, EXCEPT 'details' which must stay as list/dict
             for col in object_cols:
-                if col != 'details':  # Keep details as list of dicts for DuckDB MAP type
+                # Convert nested structures (lists, dicts) to JSON strings
+                if col in ['details', 'propositions']:
+                    df_rrp_save[col] = df_rrp_save[col].apply(
+                        lambda x: json.dumps(x) if isinstance(x, (list, dict)) else str(x) if pd.notna(x) else None
+                    )
+                else:
                     df_rrp_save[col] = df_rrp_save[col].astype(str)
 
             db.upsert_data(df_rrp_save, "nyfed_rrp_ops", key_col="record_date")

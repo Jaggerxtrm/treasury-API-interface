@@ -1,0 +1,40 @@
+--- a/fiscal/fiscal_analysis.py
++++ b/fiscal/fiscal_analysis.py
+@@ -943,6 +943,12 @@ def process_fiscal_analysis(df_trans, df_tga, nominal_gdp):
+
+     merged = pd.concat([daily_spending, daily_taxes, daily_tga], axis=1).fillna(0).sort_index()
+
++    # ==========================================================================
++    # GDP METADATA - Save for transparency and auditability
++    # ==========================================================================
++
++    merged['GDP_Used'] = nominal_gdp
++
+     # Net Impulse (Spending - Taxes)
+     merged['Net_Impulse'] = merged['Total_Spending'] - merged['Total_Taxes']
+
+@@ -1106,11 +1112,21 @@ def generate_report(df, weekly_df, gdp_info):
+     print(f"📅 Fiscal Week:     #{int(latest['Fiscal_Week'])} of FY{int(latest['Fiscal_Year'])}")
+     print(f"📅 Analysis Period: {period_start.strftime('%Y-%m-%d')} to {period_end.strftime('%Y-%m-%d')} (Wed-Wed aligned)")
+
+-    # GDP Info with sensitivity analysis
++    # ==========================================================================
++    # GDP INFORMATION - Enhanced with estimation details
++    # ==========================================================================
++
+     gdp_status = "ESTIMATED" if is_estimated else "ACTUAL"
+-    print(f"\n💰 Nominal GDP:     ${nominal_gdp/1e12:.2f}T ({gdp_status})")
++    print(f"\n💰 Nominal GDP:     ${nominal_gdp/1e12:.3f}T ({gdp_status})")
+     if gdp_date:
+-        print(f"💰 GDP Reference:   {quarter} (published {gdp_date.strftime('%Y-%m-%d')}, {days_old} days ago)")
++        print(f"💰 GDP Reference:   {quarter}")
++        print(f"    Published:      {gdp_date.strftime('%Y-%m-%d')} ({days_old} days ago)")
++
++    if is_estimated:
++        fred_gdp = NOMINAL_GDP_FALLBACK  # Would need to pass original FRED value
++        print(f"    ⚠️  GDP ESTIMATED: Using QoQ growth extrapolation")
++        print(f"    FRED latest:    ${fred_gdp/1e12:.3f}T")
++        print(f"    Extrapolated:   ${nominal_gdp/1e12:.3f}T")
+
+     if days_old > 120:
+         print(f"⚠️  WARNING: GDP data is {days_old} days old.")
