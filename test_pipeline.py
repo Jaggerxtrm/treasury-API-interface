@@ -76,7 +76,7 @@ def validate_composite_index():
         df = pd.read_csv(lci_path, index_col=0, parse_dates=True)
         
         # Check required columns
-        required_cols = ['LCI', 'regime', 'fiscal_subindex', 'monetary_subindex', 'plumbing_subindex']
+        required_cols = ['LCI', 'Fiscal_Index', 'Monetary_Index', 'Plumbing_Index']
         missing_cols = [col for col in required_cols if col not in df.columns]
         
         if missing_cols:

@@ -363,3 +363,212 @@ Prima di finalizzare il report, verificare:
 - [ ] Conclusion ha regime characterization + next key dates
 - [ ] Formattazione consistente (tabelle, simboli, numeri)
 - [ ] Nessun dato mancante o "N/A" senza spiegazione
+
+---
+
+## Funzionalità Implementate (Aggiornamento 2025-11-26)
+
+### ✅ Componenti Dati Disponibili
+
+Il sistema attuale fornisce **dati completi** per 5 delle 8 sezioni richieste:
+
+#### **1. Fiscal Analysis (`fiscal/fiscal_analysis.py`)**
+- ✅ Fiscal Impulse (Daily, MA20, MA5)
+- ✅ Impulse % GDP con target 0.64%
+- ✅ MTD, FYTD cumulative metrics
+- ✅ YoY comparisons (1Y, 2Y, 3Y baselines)
+- ✅ Household absorption breakdown
+- ✅ TGA Balance monitoring
+- ✅ Category-level spending analysis
+- ⚠️ **Manca**: QTD e 3M rolling metrics per fiscal impulse
+
+#### **2. Fed Liquidity Monitor (`fed/fed_liquidity.py`)**
+- ✅ Net Liquidity calculation (Fed Assets - RRP - TGA)
+- ✅ Effective Policy Stance (QT nominal vs QE effettivo)
+- ✅ MBS-to-Bills Reinvestment tracking
+- ✅ MTD/QTD/3M rolling metrics completi
+- ✅ Spread monitoring (SOFR-IORB, EFFR-IORB)
+- ✅ Spike detection con severity classification
+- ✅ Composite Stress Index (0-100 scale)
+- ✅ Regime detection (QT/QE/Neutral) con confidence %
+- ✅ 5-day trend forecasting
+- ✅ Correlations (3M): Net Liq vs TGA, RRP vs SOFR Spread
+- ✅ Data freshness monitoring
+- ✅ Volatility tracking (5D, 20D)
+
+#### **3. OFR Integration (`fed/ofr_analysis.py`)**
+- ✅ OFR Repo Market Stress Index
+- ✅ Plumbing stress component per LCI
+
+#### **4. Settlement Fails (`fed/utils/api_client.py::fetch_settlement_fails`)**
+- ✅ 22 Treasury fails series (FRN, 2Y-30Y, TIPS)
+- ✅ Fails to Deliver + Fails to Receive
+- ✅ Total Treasury fails aggregation
+- ✅ Weekly data from NY Fed Primary Dealer Statistics
+
+#### **5. Reference Rates (`fed/nyfed_reference_rates.py`)**
+- ✅ SOFR, BGCR, TGCR, EFFR, OBFR
+- ✅ Volume metrics
+- ✅ Percentiles (1st, 25th, 75th, 99th)
+
+---
+
+### ⚠️ Gap Critici da Colmare
+
+#### **Gap 1: Script di Orchestrazione Mancante**
+**Stato**: ❌ Non implementato
+**Descrizione**: Manca un file principale (`generate_report_data.py` o `generate_desk_report.py`) che:
+- Importi le funzioni di calcolo da `fed_liquidity.py` e `fiscal_analysis.py`
+- Esegua le analisi per ottenere i DataFrame completi
+- Estragga le metriche chiave da entrambi i DataFrame
+- Implementi la **tabella "Fiscal + Monetary Net Effect"** (Sezione 6)
+- Passi tutti i dati a `build_final_report()` per generare le 8 sezioni
+
+**Priorità**: 🔴 **CRITICA**
+
+#### **Gap 2: Sezioni Qualitative Mancanti**
+**Stato**: ❌ Non implementato
+**Descrizione**:
+- **Sezione 0 (Executive Summary)**: Manca sintesi automatica con key findings
+- **Sezione 7 (Risk Assessment)**: Stress Index calcolato ma manca risk narrative
+- **Sezione 8 (Actionable Intelligence)**: Manca completamente output per 3 audiences
+
+**Priorità**: 🟡 **ALTA**
+
+#### **Gap 3: Integrated Weekly Flow Table (Sezione 6)**
+**Stato**: ❌ Non implementato
+**Descrizione**: La tabella chiave che somma flussi fiscali e monetari per calcolare impatto netto settimanale sulla liquidità.
+
+**Esempio richiesto**:
+```
+Source              Weekly Flow    Direction    Net Liquidity Impact
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Fiscal Impulse      +$XXB/week     Injection    +$XXB
+Tax Receipts        -$XXB/week     Drain        -$XXB
+Fed QT (Assets)     -$XXB/week     Drain        -$XXB
+RRP Drawdown        +$XXB/week     Injection    +$XXB
+TGA Net Change      ±$XXB/week     [Direction]  ±$XXB
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+NET WEEKLY          —              —            ±$XXB/week
+```
+
+**Componenti disponibili**:
+- `fiscal_analysis.py`: `4W_Cum_Impulse`, `Total_Taxes` (need weekly aggregation)
+- `fed_liquidity.py`: `QT_Pace_Assets_Weekly`, `RRP_Change`, `MTD_Net_Liq_Change`
+
+**Priorità**: 🔴 **CRITICA**
+
+#### **Gap 4: Metriche Temporali Fiscali (QTD/3M)**
+**Stato**: ⚠️ Parziale
+**Descrizione**: `fiscal_analysis.py` manca QTD e 3M rolling per impulse fiscale (mentre Fed le ha)
+
+**Priorità**: 🟢 **MEDIA**
+
+---
+
+### 🔧 Refactoring Raccomandati (Post-Bug Hunt)
+
+Il bug hunt automatico ha risolto i seguenti problemi:
+
+#### **✅ RISOLTO: Double Counting in Net_Policy_Stance**
+- **Problema**: `Flow_Nominal_Assets + MBS_to_Bills_Reinvestment` contava due volte il reinvestimento
+- **Fix**: Refactored in `calculate_effective_policy_stance` con separazione esplicita stock/flow
+- **Stato**: ✅ Risolto dal bug hunt automation
+
+#### **✅ RISOLTO: Forward Fill su Dati Weekly**
+- **Problema**: `ffill()` applicato a tutti i dati distorceva metriche weekly con `diff(5)`
+- **Fix**: Forward fill selettivo solo per dati weekly, limitato a 3 giorni per TGA
+- **Stato**: ✅ Risolto dal bug hunt automation
+
+#### **✅ RISOLTO: OFR API Integration**
+- **Problema**: Config riferiva `ofr_stress` ma nessuna implementazione fetch
+- **Fix**: Creato `fed/ofr_analysis.py` con fetch e stress calculation
+- **Stato**: ✅ Implementato dal bug hunt automation
+
+#### **✅ RISOLTO: Pipeline Dependencies**
+- **Problema**: `fed_liquidity.py` dipendeva silenziosamente da `fiscal_analysis.py`
+- **Fix**: Aggiunto graceful degradation con warning se TGA data mancante
+- **Stato**: ✅ Risolto dal bug hunt automation
+
+#### **✅ RISOLTO: Test Coverage**
+- **Problema**: Nessun test automatico end-to-end
+- **Fix**: Creato `test_pipeline.py` con 14 validazioni
+- **Stato**: ✅ 13/14 test passed (92.9% success rate)
+
+---
+
+### 📊 Stato Implementazione vs Requisiti
+
+| Sezione Report | Dati Disponibili | Orchestrazione | Formattazione | Status |
+|:---|:---:|:---:|:---:|:---:|
+| 0. Executive Summary | ✅ | ❌ | ❌ | 🔴 **33%** |
+| 1. Fiscal Impulse | ✅ | ❌ | ⚠️ | 🟡 **66%** |
+| 2. Time-Frame Decomp | ⚠️ | ❌ | ⚠️ | 🟡 **50%** |
+| 3. Historical Comparison | ✅ | ❌ | ⚠️ | 🟡 **66%** |
+| 4. Liquidity Composition | ✅ | ❌ | ⚠️ | 🟡 **66%** |
+| 5. Fed Liquidity | ✅ | ❌ | ⚠️ | 🟡 **66%** |
+| 6. Integrated View | ⚠️ | ❌ | ❌ | 🔴 **33%** |
+| 7. Risk Assessment | ⚠️ | ❌ | ❌ | 🔴 **33%** |
+| 8. Actionable Intelligence | ❌ | ❌ | ❌ | 🔴 **0%** |
+
+**Overall Completeness**: 🟡 **48%** (Dati: 78%, Orchestrazione: 0%, Presentazione: 30%)
+
+---
+
+### 🎯 Roadmap Implementazione Raccomandata
+
+#### **Phase 1: Core Orchestration (Priorità CRITICA)**
+1. Creare `generate_desk_report.py`:
+   - Funzione `load_all_data()` che esegue fiscal + fed analysis
+   - Funzione `calculate_integrated_flows()` per Sezione 6 table
+   - Funzione `build_final_report(data_dict)` che genera 8 sezioni
+
+#### **Phase 2: Qualitative Layer (Priorità ALTA)**
+2. Implementare interpretazione automatica:
+   - `interpret_metric(value, threshold, context)` → narrative string
+   - Executive Summary generator basato su thresholds
+   - Risk Assessment usando Stress Index + thresholds
+   - Actionable Intelligence templates per 3 audiences
+
+#### **Phase 3: Completeness (Priorità MEDIA)**
+3. Colmare gap metriche:
+   - Aggiungere QTD/3M rolling a `fiscal_analysis.py`
+   - Migliorare formattazione output con Unicode tables
+   - Aggiungere emoji/symbols per status indicators
+
+---
+
+### 🔄 Processo di Generazione Report Proposto
+
+```python
+# Pseudo-code del workflow ideale
+
+# 1. Data Collection
+fiscal_df = run_fiscal_analysis()
+fed_df = run_fed_liquidity()
+ofr_df = run_ofr_analysis()
+
+# 2. Integration
+integrated_data = {
+    'fiscal': extract_fiscal_metrics(fiscal_df),
+    'monetary': extract_fed_metrics(fed_df),
+    'plumbing': extract_plumbing_metrics(fed_df, ofr_df),
+    'correlations': calculate_correlations(fiscal_df, fed_df),
+    'weekly_flows': calculate_integrated_flows(fiscal_df, fed_df)
+}
+
+# 3. Report Generation
+report = build_final_report(integrated_data)
+print(report)  # Output to console
+save_report_md(report, "outputs/desk_report_YYYY-MM-DD.md")
+```
+
+---
+
+### 📝 Note per Implementatori
+
+1. **Non riscrivere da zero**: I dati CI SONO, servono solo orchestrazione e presentazione
+2. **Usare le funzioni esistenti**: `calculate_mtd_metrics`, `detect_regime`, `calculate_stress_index` sono robuste
+3. **Focus su integrazione**: La Sezione 6 (Integrated View) è il cuore del valore aggiunto
+4. **Template-driven approach**: Usare template strings per le sezioni qualitative (7, 8)
+5. **Iterative enhancement**: Prima orchestrazione base, poi raffinamento interpretazione
