@@ -195,9 +195,16 @@ def calculate_integrated_flows(
     else:
         flows['fed_qt_weekly'] = 0
 
-    # 4. RRP Change (weekly aggregate, positive = injection)
+    # 4. RRP Change (weekly aggregate, positive = injection) - FIXED: Add NaN validation
     if 'RRP_Change' in fed_recent.columns:
-        flows['rrp_drawdown_weekly'] = -fed_recent.loc[common_dates, 'RRP_Change'].rolling(5).sum()
+        # Clean NaN values before rolling calculation
+        rrp_change_clean = fed_recent.loc[common_dates, 'RRP_Change'].fillna(0)
+        flows['rrp_drawdown_weekly'] = -rrp_change_clean.rolling(5).sum()
+        
+        # Additional validation: check for any remaining NaN values
+        if flows['rrp_drawdown_weekly'].isna().any():
+            print("⚠️ RRP weekly NaN values detected after rolling sum, setting to 0")
+            flows['rrp_drawdown_weekly'] = flows['rrp_drawdown_weekly'].fillna(0)
     else:
         flows['rrp_drawdown_weekly'] = 0
 
@@ -282,8 +289,20 @@ def extract_key_metrics(
             'mtd_impulse': fiscal_last.get('MTD_Net', 0),          # Use MTD_Net instead of MTD_Impulse
             'fytd_impulse': fiscal_last.get('FYTD_Net', 0),          # Use FYTD_Net instead of FYTD_Impulse
             'household_impulse': fiscal_last.get('Household_Spending', 0),  # Use Household_Spending instead
-            'household_share': (fiscal_last.get('Household_Spending', 0) /
-                              fiscal_last.get('Net_Impulse', 1) * 100) if fiscal_last.get('Net_Impulse', 0) != 0 else 0,
+            # FIXED: Calculate household share as % of TOTAL spending (not net impulse)
+            # This ensures bounds 0-100% and handles negative net impulse correctly
+            total_spending = fiscal_last.get('Total_Spending', 0)
+            household_spending = fiscal_last.get('Household_Spending', 0)
+            if total_spending > 0 and not pd.isna(total_spending):
+                household_share = (household_spending / total_spending) * 100
+                # Bounds validation
+                household_share = max(0, min(100, household_share))
+            else:
+                household_share = 0
+                if total_spending <= 0:
+                    print("⚠️ Total spending <= 0, setting household_share to 0")
+            
+            'household_share': household_share,
             'tga_balance': fiscal_last.get('TGA_Balance', 0),
             'yoy_fytd_change': fiscal_last.get('FYTD_YoY_Diff', 0),  # Use FYTD_YoY_Diff instead of Cum_Diff_YoY
             'vs_3y_baseline': (fiscal_last.get('MA20_Net_Impulse', 0) - fiscal_last.get('3Y_Avg_Net_Impulse', 0)),
@@ -458,11 +477,29 @@ def build_final_report(
         net_liq_change_mtd = metrics['temporal']['mtd'].get('net_liq_mtd_change', 0) / 1_000_000
         findings.append(f"• Net Liquidity: ${net_liq:.2f}T ({net_liq_change_mtd:+.2f}T MTD)")
 
-    # Finding 3: RRP Status
+    # Finding 3: RRP Status - FIXED: Proper MTD percentage calculation
     if 'monetary' in metrics and 'rrp_balance' in metrics['monetary']:
         rrp = metrics['monetary']['rrp_balance']
-        rrp_mtd_pct = (metrics['temporal']['mtd'].get('rrp_mtd_change', 0) /
-                       (rrp - metrics['temporal']['mtd'].get('rrp_mtd_change', 0)) * 100) if rrp > 0 else 0
+        rrp_mtd_change = metrics['temporal']['mtd'].get('rrp_mtd_change', 0)
+        
+        # FIXED: Calculate MTD % relative to beginning of period, not current
+        # Formula: (current - start) / start * 100 = change / start * 100
+        # where start = current - change
+        rrp_start = rrp - rrp_mtd_change
+        
+        if abs(rrp_start) > 0 and not pd.isna(rrp_start) and rrp_start > 0:
+            rrp_mtd_pct = (rrp_mtd_change / rrp_start) * 100
+            # Bounds validation to prevent unreasonable percentages
+            if abs(rrp_mtd_pct) > 500:  # Cap at 500% to prevent anomalies
+                rrp_mtd_pct = 0
+                print("⚠️ RRP MTD % exceeded 500% bounds, setting to 0")
+            elif pd.isna(rrp_mtd_pct):
+                rrp_mtd_pct = 0
+                print("⚠️ RRP MTD % is NaN, setting to 0")
+        else:
+            rrp_mtd_pct = 0
+            print("⚠️ RRP start of period is zero, negative, or NaN, setting MTD % to 0")
+            
         rrp_status = "CRITICAL" if rrp < 50 else "WARNING" if rrp < 150 else "NORMAL"
         findings.append(f"• RRP Balance: ${rrp:,.0f}B ({rrp_mtd_pct:+.1f}% MTD) - {rrp_status}")
 

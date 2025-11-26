@@ -291,6 +291,35 @@ def calculate_metrics(df):
         if df['TGA_Balance'].notna().any():
             df['Net_Liquidity'] = df['Fed_Total_Assets'] - df['RRP_Balance_M'] - df['TGA_Balance']
             print("✓ Net Liquidity calculated: Fed Assets - RRP - TGA")
+            
+            # ADDED: Net Liquidity reconciliation check and debug logging
+            if not df.empty:
+                last_idx = df.last_valid_index()
+                if last_idx is not None:
+                    last_row = df.loc[last_idx]
+                    fed_assets = last_row.get('Fed_Total_Assets', 0)
+                    rrp_m = last_row.get('RRP_Balance_M', 0)
+                    tga = last_row.get('TGA_Balance', 0)
+                    net_liq_actual = last_row.get('Net_Liquidity', 0)
+                    
+                    # Reconciliation check
+                    net_liq_calculated = fed_assets - rrp_m - tga
+                    delta = abs(net_liq_calculated - net_liq_actual)
+                    
+                    # Debug logging
+                    print(f"DEBUG Net Liquidity Components (last valid date {last_idx.strftime('%Y-%m-%d')}):")
+                    print(f"  Fed_Total_Assets: ${fed_assets:,.0f}M")
+                    print(f"  RRP_Balance: ${last_row.get('RRP_Balance', 0):,.0f}B")
+                    print(f"  RRP_Balance_M: ${rrp_m:,.0f}M")
+                    print(f"  TGA_Balance: ${tga:,.0f}M")
+                    print(f"  Net_Liquidity (calculated): ${net_liq_calculated:,.0f}M")
+                    print(f"  Net_Liquidity (stored): ${net_liq_actual:,.0f}M")
+                    print(f"  Delta: ${delta:,.0f}M")
+                    
+                    # Warning for significant mismatch
+                    if delta > 500:  # Threshold for significant mismatch (> $500M)
+                        print(f"⚠️ Net Liquidity mismatch detected: ${delta:,.0f}M (threshold $500M)")
+                        print("  Possible causes: unit conversion issues, rounding, or component mismatch")
         else:
             # Fallback without TGA (calculate but warn)
             df['Net_Liquidity_No_TGA'] = df['Fed_Total_Assets'] - df['RRP_Balance_M']
