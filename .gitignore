@@ -27,6 +27,7 @@ build/
 *.swp
 *.swo
 *~
+.mcp.json
 
 
 # OS
