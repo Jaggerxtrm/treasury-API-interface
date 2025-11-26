@@ -17,6 +17,7 @@ from config import DEFAULT_START_DATE
 from utils.api_client import NYFedClient
 from utils.data_loader import get_output_path
 from utils.report_generator import ReportGenerator, format_currency, format_bps
+from utils.db_manager import TimeSeriesDB
 
 
 def extract_collateral_breakdown(details: list) -> dict:
@@ -338,16 +339,70 @@ def generate_report(df_repo: pd.DataFrame, df_rrp: pd.DataFrame) -> None:
             report.print_table(rrp_display, max_rows=20)
     
     # Export
+    # Export to Database
     print("\n" + "="*60)
-    if not df_repo.empty:
-        repo_path = get_output_path("nyfed_repo_ops.csv")
-        df_repo.to_csv(repo_path)
-        print(f"Repo operations exported to {repo_path}")
-    
-    if not df_rrp.empty:
-        rrp_path = get_output_path("nyfed_rrp_ops.csv")
-        df_rrp.to_csv(rrp_path)
-        print(f"RRP operations exported to {rrp_path}")
+    print("💾 Saving to DuckDB...")
+    try:
+        db = TimeSeriesDB("database/treasury_data.duckdb")
+        
+        if not df_repo.empty:
+            # Reset index to make date a column
+            df_repo_save = df_repo.reset_index()
+            if 'index' in df_repo_save.columns:
+                df_repo_save = df_repo_save.rename(columns={'index': 'record_date'})
+            elif 'date' in df_repo_save.columns: # Sometimes index name is date
+                df_repo_save = df_repo_save.rename(columns={'date': 'record_date'})
+
+            # DIAGNOSTIC: Print DataFrame info before upsert
+            print("\n🔍 === DIAGNOSTIC INFO ===")
+            print("DataFrame dtypes:")
+            print(df_repo_save.dtypes)
+            print("\nNull values count:")
+            print(df_repo_save.isna().sum())
+            print("\nSample data (first 2 rows):")
+            print(df_repo_save.head(2))
+
+            # FIXED: Convert ALL columns to appropriate types before upsert
+            # Handle object columns (convert to string except 'details')
+            object_cols = df_repo_save.select_dtypes(include=['object']).columns.tolist()
+            for col in object_cols:
+                if col != 'details':  # Keep details as list of dicts for DuckDB MAP type
+                    df_repo_save[col] = df_repo_save[col].astype(str)
+
+            # Handle numeric columns that might have been converted to float due to NaN
+            # Convert them back to proper numeric types or replace NaN with appropriate defaults
+            numeric_cols = df_repo_save.select_dtypes(include=['float64', 'int64']).columns.tolist()
+            for col in numeric_cols:
+                if df_repo_save[col].isna().any():
+                    print(f"⚠️  Column '{col}' contains NaN values, filling with 0")
+                    df_repo_save[col] = df_repo_save[col].fillna(0)
+
+            db.upsert_data(df_repo_save, "nyfed_repo_ops", key_col="record_date")
+            print("✅ Repo operations saved to 'nyfed_repo_ops'")
+        
+        if not df_rrp.empty:
+            # Reset index to make date a column
+            df_rrp_save = df_rrp.reset_index()
+            if 'index' in df_rrp_save.columns:
+                df_rrp_save = df_rrp_save.rename(columns={'index': 'record_date'})
+            elif 'date' in df_rrp_save.columns:
+                df_rrp_save = df_rrp_save.rename(columns={'date': 'record_date'})
+
+            # FIXED: Convert problematic columns to string, except 'details' which is MAP type
+            # DuckDB expects MAP(VARCHAR, VARCHAR) for 'details', not VARCHAR
+            object_cols = df_rrp_save.select_dtypes(include=['object']).columns.tolist()
+
+            # Convert object columns to string, EXCEPT 'details' which must stay as list/dict
+            for col in object_cols:
+                if col != 'details':  # Keep details as list of dicts for DuckDB MAP type
+                    df_rrp_save[col] = df_rrp_save[col].astype(str)
+
+            db.upsert_data(df_rrp_save, "nyfed_rrp_ops", key_col="record_date")
+            print("✅ RRP operations saved to 'nyfed_rrp_ops'")
+            
+        db.close()
+    except Exception as e:
+        print(f"❌ Database save failed: {e}")
     
     print("="*60)
 

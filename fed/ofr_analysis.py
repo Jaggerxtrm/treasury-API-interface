@@ -16,6 +16,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from utils.ofr_client import OFRClient
 from utils.data_loader import get_output_path
 import config
+from utils.db_manager import TimeSeriesDB
 
 def calculate_repo_stress_index(df):
     """
@@ -148,9 +149,23 @@ def main():
             output_df = pd.concat([output_df, raw_pivot[available_key]], axis=1)
     
     # Export to CSV
-    output_path = get_output_path("ofr_repo_analysis.csv", subdir="fed")
-    output_df.to_csv(output_path)
-    print(f"✓ Analysis exported to {output_path}")
+    # Export to Database
+    print("\n💾 Saving to DuckDB...")
+    try:
+        db = TimeSeriesDB("database/treasury_data.duckdb")
+        
+        # Reset index to make date a column
+        df_save = output_df.reset_index()
+        if 'index' in df_save.columns:
+            df_save = df_save.rename(columns={'index': 'record_date'})
+        elif 'date' in df_save.columns:
+            df_save = df_save.rename(columns={'date': 'record_date'})
+            
+        db.upsert_data(df_save, "ofr_financial_stress", key_col="record_date")
+        print("✅ OFR analysis saved to 'ofr_financial_stress'")
+        db.close()
+    except Exception as e:
+        print(f"❌ Database save failed: {e}")
     
     # Quick summary
     if not output_df.empty and 'Repo_Stress_Index' in output_df.columns:

@@ -21,6 +21,7 @@ from config import DEFAULT_START_DATE
 from utils.api_client import NYFedClient
 from utils.data_loader import get_output_path
 from utils.report_generator import ReportGenerator
+from utils.db_manager import TimeSeriesDB
 
 
 def aggregate_fails(df: pd.DataFrame) -> pd.DataFrame:
@@ -118,10 +119,24 @@ def generate_report(df: pd.DataFrame) -> None:
         report.print_table(df[cols], max_rows=5)
 
     # Export
+    # Export to Database
     print("\n" + "="*60)
-    output_path = get_output_path("nyfed_settlement_fails.csv")
-    df.to_csv(output_path)
-    print(f"Settlement fails data exported to {output_path}")
+    print("💾 Saving to DuckDB...")
+    try:
+        db = TimeSeriesDB("database/treasury_data.duckdb")
+        
+        # Reset index to make date a column
+        df_save = df.reset_index()
+        if 'index' in df_save.columns:
+            df_save = df_save.rename(columns={'index': 'record_date'})
+        elif 'date' in df_save.columns:
+            df_save = df_save.rename(columns={'date': 'record_date'})
+            
+        db.upsert_data(df_save, "nyfed_settlement_fails", key_col="record_date")
+        print("✅ Settlement fails data saved to 'nyfed_settlement_fails'")
+        db.close()
+    except Exception as e:
+        print(f"❌ Database save failed: {e}")
     print("="*60)
 
 

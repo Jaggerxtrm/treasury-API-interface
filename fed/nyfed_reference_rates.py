@@ -15,6 +15,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from config import NYFED_RATE_TYPES
 from utils.api_client import NYFedClient
 from utils.data_loader import get_output_path
+from utils.db_manager import TimeSeriesDB
 
 
 def fetch_all_reference_rates(num_records: int = 1000) -> dict:
@@ -102,9 +103,23 @@ def generate_report(merged_df: pd.DataFrame) -> None:
     print(trend_data.to_string(float_format="{:.2f}".format))
     
     # Export
-    csv_path = get_output_path("nyfed_reference_rates.csv")
-    merged_df.to_csv(csv_path)
-    print(f"\nReference rates exported to {csv_path}")
+    # Export to Database
+    print("\n💾 Saving to DuckDB...")
+    try:
+        db = TimeSeriesDB("database/treasury_data.duckdb")
+        
+        # Reset index to make date a column
+        df_save = merged_df.reset_index()
+        # The index name from the DataFrame becomes the column name
+        index_col_name = df_save.columns[0]  # First column after reset_index
+        if index_col_name != 'record_date':
+            df_save = df_save.rename(columns={index_col_name: 'record_date'})
+            
+        db.upsert_data(df_save, "nyfed_reference_rates", key_col="record_date")
+        print("✅ Data successfully saved to database/treasury_data.duckdb")
+        db.close()
+    except Exception as e:
+        print(f"❌ Database save failed: {e}")
 
 
 def main():

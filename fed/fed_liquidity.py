@@ -26,6 +26,7 @@ from config import (
 )
 from utils.api_client import FREDClient
 from utils.data_loader import load_tga_data, get_output_path
+from utils.db_manager import TimeSeriesDB
 
 # FRED client instance (reusable)
 fred_client = FREDClient()
@@ -1519,58 +1520,29 @@ def generate_report(df, series_metadata=None):
         trend_data = df.tail(30)[cols].dropna(how='all').sort_index(ascending=False).head(20)
         print(trend_data.to_string(float_format="{:,.2f}".format))
     
-    # Export full data
-    csv_path = get_output_path("fed_liquidity_full.csv")
-    df.to_csv(csv_path)
+    # Export to Database
     print(f"\n{'='*60}")
-    print(f"Full data exported to {csv_path}")
-    
-    # Export summary metrics
-    summary_data = {
-        'Metric': [],
-        'Current': [],
-        'MTD': [],
-        'QTD': [],
-        '3M_Avg': [],
-        'YoY': []
-    }
-    
-    if 'RRP_Balance' in df.columns:
-        summary_data['Metric'].append('RRP Balance (B)')
-        summary_data['Current'].append(f"{last_row['RRP_Balance']:,.0f}")
-        summary_data['MTD'].append(f"{mtd_metrics.get('rrp_mtd_change', 0):+,.0f}")
-        summary_data['QTD'].append(f"{qtd_metrics.get('rrp_qtd_change', 0):+,.0f}")
-        summary_data['3M_Avg'].append(f"{rolling_3m_metrics.get('rrp_3m_avg', 0):,.0f}")
-        summary_data['YoY'].append(f"{last_row.get('YoY_RRP_Change', 0):+,.0f}" if 'YoY_RRP_Change' in last_row else 'N/A')
-    
-    if 'Net_Liquidity' in df.columns:
-        summary_data['Metric'].append('Net Liquidity (M)')
-        summary_data['Current'].append(f"{last_row['Net_Liquidity']:,.0f}")
-        summary_data['MTD'].append(f"{mtd_metrics.get('net_liq_mtd_change', 0):+,.0f}")
-        summary_data['QTD'].append('N/A')
-        summary_data['3M_Avg'].append(f"{rolling_3m_metrics.get('net_liq_3m_avg', 0):,.0f}")
-        summary_data['YoY'].append(f"{last_row.get('YoY_Net_Liq_Change', 0):+,.0f}" if 'YoY_Net_Liq_Change' in last_row else 'N/A')
-    
-    if 'Spread_SOFR_IORB' in df.columns:
-        summary_data['Metric'].append('SOFR-IORB Spread (bps)')
-        summary_data['Current'].append(f"{last_row['Spread_SOFR_IORB']:.2f}")
-        summary_data['MTD'].append(f"{mtd_metrics.get('sofr_iorb_mtd_avg', 0):.2f}")
-        summary_data['QTD'].append(f"{qtd_metrics.get('sofr_spread_qtd_avg', 0):.2f}")
-        summary_data['3M_Avg'].append(f"{rolling_3m_metrics.get('sofr_spread_3m_avg', 0):.2f}")
-        summary_data['YoY'].append('N/A')
-    
-    summary_data['Metric'].append('Stress Index')
-    summary_data['Current'].append(f"{stress_metrics.get('stress_index', 0):.0f}/100")
-    summary_data['MTD'].append('N/A')
-    summary_data['QTD'].append('N/A')
-    summary_data['3M_Avg'].append('N/A')
-    summary_data['YoY'].append('N/A')
-    
-    summary_df = pd.DataFrame(summary_data)
-    summary_csv = get_output_path("fed_liquidity_summary.csv")
-    summary_df.to_csv(summary_csv, index=False)
-    print(f"Summary metrics exported to {summary_csv}")
-    print("="*60)
+    print("💾 Saving to DuckDB...")
+    try:
+        db = TimeSeriesDB("database/treasury_data.duckdb")
+        
+        # Save full data
+        df_save = df.reset_index()
+        if 'index' in df_save.columns:
+            df_save = df_save.rename(columns={'index': 'record_date'})
+        elif 'date' in df_save.columns:
+            df_save = df_save.rename(columns={'date': 'record_date'})
+            
+        # Convert Period objects to string for DuckDB compatibility
+        for col in df_save.columns:
+            if isinstance(df_save[col].dtype, pd.PeriodDtype):
+                df_save[col] = df_save[col].astype(str)
+                
+        db.upsert_data(df_save, "fed_liquidity_daily", key_col="record_date")
+        print("✅ Fed liquidity data saved to 'fed_liquidity_daily'")
+        db.close()
+    except Exception as e:
+        print(f"❌ Database save failed: {e}")
 
 
 def main():

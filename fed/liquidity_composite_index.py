@@ -2,6 +2,10 @@ import pandas as pd
 import numpy as np
 from datetime import datetime
 import sys
+import os
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from utils.db_manager import TimeSeriesDB
 
 """
 Liquidity Composite Index (LCI)
@@ -462,9 +466,28 @@ def generate_report(indices):
     print(trend_data.to_string(float_format="{:.2f}".format))
 
     # Export
-    csv_path = "liquidity_composite_index.csv"
-    indices.to_csv(csv_path)
-    print(f"\nFull LCI data exported to {csv_path}")
+    # Export to Database
+    print("\n💾 Saving to DuckDB...")
+    try:
+        db = TimeSeriesDB("database/treasury_data.duckdb")
+        
+        # Reset index to make date a column
+        df_save = indices.reset_index()
+        if 'index' in df_save.columns:
+            df_save = df_save.rename(columns={'index': 'record_date'})
+        elif 'date' in df_save.columns:
+            df_save = df_save.rename(columns={'date': 'record_date'})
+            
+        # Convert categorical to string
+        for col in df_save.columns:
+            if pd.api.types.is_categorical_dtype(df_save[col]):
+                df_save[col] = df_save[col].astype(str)
+                
+        db.upsert_data(df_save, "liquidity_composite_index", key_col="record_date")
+        print("✅ LCI data saved to 'liquidity_composite_index'")
+        db.close()
+    except Exception as e:
+        print(f"❌ Database save failed: {e}")
 
 def main():
     print("="*60)

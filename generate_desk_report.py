@@ -278,6 +278,19 @@ def extract_key_metrics(
         fiscal_last = fiscal_df.iloc[-1]
         fiscal_date = fiscal_df.index[-1]
 
+        # FIXED: Calculate household share as % of TOTAL spending (not net impulse)
+        # This ensures bounds 0-100% and handles negative net impulse correctly
+        total_spending = fiscal_last.get('Total_Spending', 0)
+        household_spending = fiscal_last.get('Household_Spending', 0)
+        if total_spending > 0 and not pd.isna(total_spending):
+            household_share = (household_spending / total_spending) * 100
+            # Bounds validation
+            household_share = max(0, min(100, household_share))
+        else:
+            household_share = 0
+            if total_spending <= 0:
+                print("⚠️ Total spending <= 0, setting household_share to 0")
+
         # Note: Column names in fiscal_df may differ from expected names
         # Use available columns and provide fallbacks
         metrics['fiscal'] = {
@@ -289,19 +302,6 @@ def extract_key_metrics(
             'mtd_impulse': fiscal_last.get('MTD_Net', 0),          # Use MTD_Net instead of MTD_Impulse
             'fytd_impulse': fiscal_last.get('FYTD_Net', 0),          # Use FYTD_Net instead of FYTD_Impulse
             'household_impulse': fiscal_last.get('Household_Spending', 0),  # Use Household_Spending instead
-            # FIXED: Calculate household share as % of TOTAL spending (not net impulse)
-            # This ensures bounds 0-100% and handles negative net impulse correctly
-            total_spending = fiscal_last.get('Total_Spending', 0)
-            household_spending = fiscal_last.get('Household_Spending', 0)
-            if total_spending > 0 and not pd.isna(total_spending):
-                household_share = (household_spending / total_spending) * 100
-                # Bounds validation
-                household_share = max(0, min(100, household_share))
-            else:
-                household_share = 0
-                if total_spending <= 0:
-                    print("⚠️ Total spending <= 0, setting household_share to 0")
-            
             'household_share': household_share,
             'tga_balance': fiscal_last.get('TGA_Balance', 0),
             'yoy_fytd_change': fiscal_last.get('FYTD_YoY_Diff', 0),  # Use FYTD_YoY_Diff instead of Cum_Diff_YoY

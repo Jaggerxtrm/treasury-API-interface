@@ -14,6 +14,10 @@ import matplotlib.pyplot as plt
 # Constants
 API_BASE_URL = "https://api.fiscaldata.treasury.gov/services/api/fiscal_service"
 
+# Add project root to path for utils import
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+from utils.db_manager import TimeSeriesDB
+
 # Endpoints
 DTS_WITHDRAWALS_ENDPOINT = "/v1/accounting/dts/deposits_withdrawals_operating_cash"
 DTS_TGA_ENDPOINT = "/v1/accounting/dts/operating_cash_balance"
@@ -1335,16 +1339,48 @@ def generate_report(df, weekly_df, gdp_info):
     # Ensure output directory exists
     os.makedirs("outputs/fiscal", exist_ok=True)
     
-    # Daily data
-    output_file = "outputs/fiscal/fiscal_analysis_full.csv"
-    df.to_csv(output_file)
-    print(f"\n✅ Daily data exported to {output_file}")
-    
-    # Weekly data
-    if not weekly_df.empty:
-        weekly_output = "outputs/fiscal/fiscal_analysis_weekly.csv"
-        weekly_df.to_csv(weekly_output)
-        print(f"✅ Weekly data exported to {weekly_output}")
+    # --- DATABASE STORAGE ---
+    print("\n💾 Saving to DuckDB...")
+    try:
+        db = TimeSeriesDB("database/treasury_data.duckdb")
+        
+        # Save Daily Data
+        # Ensure index is a column for storage
+        df_save = df.reset_index()
+        
+        # Convert Period objects to string for DuckDB compatibility
+        for col in df_save.columns:
+            if isinstance(df_save[col].dtype, pd.PeriodDtype):
+                df_save[col] = df_save[col].astype(str)
+                
+        db.upsert_data(df_save, "fiscal_daily_metrics", key_col="record_date")
+        
+        # Save Weekly Data
+        if not weekly_df.empty:
+            weekly_save = weekly_df.reset_index()
+            
+            # Handle index renaming
+            if 'Week_ID' in weekly_save.columns:
+                weekly_save = weekly_save.rename(columns={'Week_ID': 'week_start_date'})
+            elif 'index' in weekly_save.columns:
+                weekly_save = weekly_save.rename(columns={'index': 'week_start_date'})
+                
+            # Ensure we have a string week_id
+            if 'week_start_date' in weekly_save.columns:
+                weekly_save['week_id'] = weekly_save['week_start_date'].astype(str)
+            
+            # Convert Period objects to string for DuckDB compatibility
+            for col in weekly_save.columns:
+                if isinstance(weekly_save[col].dtype, pd.PeriodDtype):
+                    weekly_save[col] = weekly_save[col].astype(str)
+            
+            db.upsert_data(weekly_save, "fiscal_weekly_metrics", key_col="week_start_date")
+            
+        print("✅ Data successfully saved to database/treasury_data.duckdb")
+        db.close()
+    except Exception as e:
+        print(f"❌ Database save failed: {e}")
+    # -----------------------------
     
     print("\n" + "="*70)
     print("END OF REPORT")
