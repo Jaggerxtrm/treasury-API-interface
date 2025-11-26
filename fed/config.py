@@ -35,8 +35,7 @@ FRED_SERIES_MAP = {
     "WSHOMCB": "Fed_MBS_Holdings",   # MBS Holdings
     "TREAST": "Fed_Treasury_Holdings", # Treasury Holdings
     "WSHOBL": "Fed_Bill_Holdings",   # T-Bills Held Outright
-    "WSHONOT": "Fed_Notes_Holdings", # Treasury Notes (2-10Y)
-    "WSHOBND": "Fed_Bonds_Holdings", # Treasury Bonds (20-30Y)
+    "WSHONBNL": "Fed_Notes_Bonds_Holdings", # Treasury Notes & Bonds (Combined - Replaces WSHONOT+WSHOBND)
 
     
     # Rates & Spreads
@@ -86,8 +85,7 @@ SERIES_FREQUENCIES = {
     "WSHOMCB": "weekly",
     "TREAST": "weekly",
     "WSHOBL": "weekly",
-    "WSHONOT": "weekly",
-    "WSHOBND": "weekly",
+    "WSHONBNL": "weekly",  # Combined Notes & Bonds (replaces WSHONOT+WSHOBND)
     "SWPT": "weekly",
 }
 

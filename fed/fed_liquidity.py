@@ -116,7 +116,7 @@ def fetch_all_data():
     
     # Forward fill ONLY weekly data (Fed Balance Sheet) to preserve daily data integrity
     # Weekly series from FRED (update Wednesdays, should carry forward)
-    weekly_series = ['WALCL', 'WSHOMCB', 'TREAST', 'WSHOBL', 'WSHONOT', 'WSHOBND', 'SWPT']
+    weekly_series = ['WALCL', 'WSHOMCB', 'TREAST', 'WSHOBL', 'WSHONBNL', 'SWPT']
     
     # Get column names for weekly series from our mapping
     weekly_columns = []
@@ -338,9 +338,11 @@ def calculate_metrics(df):
     if 'Fed_Bill_Holdings' in df.columns:
         df['Bill_Buying_Pace_Weekly'] = df['Fed_Bill_Holdings'].diff(5)
         
-    # Derive Coupons (Notes + Bonds) = Total Treasuries - Bills
-    if 'Fed_Treasury_Holdings' in df.columns and 'Fed_Bill_Holdings' in df.columns:
-        df['Fed_Coupon_Holdings'] = df['Fed_Treasury_Holdings'] - df['Fed_Bill_Holdings']
+    # Derive Coupons (Notes + Bonds) from combined series
+    if 'Fed_Treasury_Holdings' in df.columns and 'Fed_Bill_Holdings' in df.columns and 'Fed_Notes_Bonds_Holdings' in df.columns:
+        # Total Treasury = Bills + Notes & Bonds (combined)
+        # We can derive Bills from the data, and Notes_Bonds is the combined series
+        df['Fed_Coupon_Holdings'] = df['Fed_Notes_Bonds_Holdings']  # Now represents both Notes and Bonds
 
     # 5. Volatility & Stress
     if 'SOFR_Rate' in df.columns:
@@ -446,19 +448,60 @@ def calculate_mtd_metrics(df):
         'month_end': last_date.strftime('%Y-%m-%d')
     }
     
-    # RRP MTD
-    if 'RRP_Balance' in df.columns:
-        metrics['rrp_mtd_change'] = mtd_data['RRP_Balance'].iloc[-1] - mtd_data['RRP_Balance'].iloc[0]
-        metrics['rrp_mtd_avg'] = mtd_data['RRP_Balance'].mean()
+    # RRP MTD - Fix NaN calculation with proper validation
+    if 'RRP_Balance' in df.columns and len(mtd_data) > 1:
+        # Find first and last valid values (not NaN)
+        first_valid = None
+        last_valid = None
+        
+        for idx in mtd_data.index:
+            if pd.notna(mtd_data.loc[idx, 'RRP_Balance']):
+                if first_valid is None:
+                    first_valid = (idx, mtd_data.loc[idx, 'RRP_Balance'])
+                last_valid = (idx, mtd_data.loc[idx, 'RRP_Balance'])
+        
+        if first_valid is not None and last_valid is not None and first_valid[1] != 0:
+            mtd_change = last_valid[1] - first_valid[1]
+            metrics['rrp_mtd_change'] = mtd_change
+            # Calculate percentage based on first valid value, not last minus change  
+            metrics['rrp_mtd_pct'] = (mtd_change / first_valid[1]) * 100
+        else:
+            metrics['rrp_mtd_change'] = np.nan
+            metrics['rrp_mtd_pct'] = np.nan
+            
+        # Average only of valid values
+        rrp_series = mtd_data['RRP_Balance'].dropna()
+        metrics['rrp_mtd_avg'] = rrp_series.mean() if not rrp_series.empty else np.nan
+        
         if 'RRP_Change' in df.columns:
-            metrics['rrp_mtd_flow'] = mtd_data['RRP_Change'].sum()
+            rrp_change_series = mtd_data['RRP_Change'].dropna()
+            metrics['rrp_mtd_flow'] = rrp_change_series.sum() if not rrp_change_series.empty else np.nan
     
-    # Net Liquidity MTD
-    if 'Net_Liquidity' in df.columns:
-        metrics['net_liq_mtd_change'] = mtd_data['Net_Liquidity'].iloc[-1] - mtd_data['Net_Liquidity'].iloc[0]
-        metrics['net_liq_mtd_avg'] = mtd_data['Net_Liquidity'].mean()
+    # Net Liquidity MTD - Fix NaN calculation with proper validation
+    if 'Net_Liquidity' in df.columns and len(mtd_data) > 1:
+        # Find first and last valid values (not NaN)
+        first_valid = None
+        last_valid = None
+        
+        for idx in mtd_data.index:
+            if pd.notna(mtd_data.loc[idx, 'Net_Liquidity']):
+                if first_valid is None:
+                    first_valid = (idx, mtd_data.loc[idx, 'Net_Liquidity'])
+                last_valid = (idx, mtd_data.loc[idx, 'Net_Liquidity'])
+        
+        if first_valid is not None and last_valid is not None:
+            mtd_change = last_valid[1] - first_valid[1]
+            metrics['net_liq_mtd_change'] = mtd_change
+        else:
+            metrics['net_liq_mtd_change'] = np.nan
+            
+        # Average only of valid values
+        net_liq_series = mtd_data['Net_Liquidity'].dropna()
+        metrics['net_liq_mtd_avg'] = net_liq_series.mean() if not net_liq_series.empty else np.nan
+        
         if 'Net_Liq_Change' in df.columns:
-            metrics['net_liq_mtd_flow'] = mtd_data['Net_Liq_Change'].sum()
+            net_liq_change_series = mtd_data['Net_Liq_Change'].dropna()
+            metrics['net_liq_mtd_flow'] = net_liq_change_series.sum() if not net_liq_change_series.empty else np.nan
     
     # Balance Sheet MTD
     if 'Fed_Total_Assets' in df.columns:
@@ -497,11 +540,29 @@ def calculate_qtd_metrics(df):
         'quarter_end': last_date.strftime('%Y-%m-%d')
     }
     
-    # RRP QTD
-    if 'RRP_Balance' in df.columns:
-        metrics['rrp_qtd_change'] = qtd_data['RRP_Balance'].iloc[-1] - qtd_data['RRP_Balance'].iloc[0]
-        metrics['rrp_qtd_pct'] = (metrics['rrp_qtd_change'] / qtd_data['RRP_Balance'].iloc[0] * 100) if qtd_data['RRP_Balance'].iloc[0] != 0 else 0
-        metrics['rrp_qtd_avg'] = qtd_data['RRP_Balance'].mean()
+    # RRP QTD - Fix NaN calculation with proper validation
+    if 'RRP_Balance' in df.columns and len(qtd_data) > 1:
+        # Find first and last valid values (not NaN)
+        first_valid = None
+        last_valid = None
+        
+        for idx in qtd_data.index:
+            if pd.notna(qtd_data.loc[idx, 'RRP_Balance']):
+                if first_valid is None:
+                    first_valid = (idx, qtd_data.loc[idx, 'RRP_Balance'])
+                last_valid = (idx, qtd_data.loc[idx, 'RRP_Balance'])
+        
+        if first_valid is not None and last_valid is not None and first_valid[1] != 0:
+            qtd_change = last_valid[1] - first_valid[1]
+            metrics['rrp_qtd_change'] = qtd_change
+            metrics['rrp_qtd_pct'] = (qtd_change / first_valid[1] * 100) if first_valid[1] != 0 else 0
+        else:
+            metrics['rrp_qtd_change'] = np.nan
+            metrics['rrp_qtd_pct'] = np.nan
+            
+        # Average only of valid values
+        rrp_series = qtd_data['RRP_Balance'].dropna()
+        metrics['rrp_qtd_avg'] = rrp_series.mean() if not rrp_series.empty else np.nan
     
     # QT Pace (Annualized)
     if 'Fed_Total_Assets' in df.columns:
@@ -652,62 +713,93 @@ def detect_spread_spikes(df, spread_col='Spread_SOFR_IORB', threshold_std=2.0, a
 def calculate_stress_index(df):
     """
     Calculate composite stress index (0-100) based on multiple factors.
+    Fixed version: Proper validation and clamping of components to prevent invalid values.
     """
     if df.empty:
         return {'stress_index': 0, 'stress_level': 'N/A'}
     
     last_row = df.iloc[-1]
     stress_components = []
-    weights = []
     
     # Component 1: SOFR-IORB Spread (0-20 bps = 0-100 scale)
-    if 'Spread_SOFR_IORB' in df.columns:
+    if 'Spread_SOFR_IORB' in df.columns and pd.notna(last_row['Spread_SOFR_IORB']):
         sofr_spread = last_row['Spread_SOFR_IORB']
+        # Clamp to reasonable range first (0-20 bps max)
+        sofr_spread = max(0, min(sofr_spread, 0.20))
         sofr_stress = min((sofr_spread / 0.20) * 100, 100)  # 20bps = 100
         stress_components.append(sofr_stress)
-        weights.append(0.30)
+    else:
+        stress_components.append(0)
     
     # Component 2: EFFR-IORB Spread (0-15 bps = 0-100 scale)
-    if 'Spread_EFFR_IORB' in df.columns:
+    if 'Spread_EFFR_IORB' in df.columns and pd.notna(last_row['Spread_EFFR_IORB']):
         effr_spread = last_row['Spread_EFFR_IORB']
-        effr_stress = min((effr_spread / 0.15) * 100, 100)  # 15bps = 100
+        # EFFR should be close to IORB, so negative spreads are usually errors
+        # Clamp to reasonable range (-5 to +15 bps)
+        effr_spread = max(-0.05, min(effr_spread, 0.15))
+        # Only positive spreads contribute to stress
+        if effr_spread > 0:
+            effr_stress = min((effr_spread / 0.15) * 100, 100)  # 15bps = 100
+        else:
+            effr_stress = 0  # Normal monetary policy transmission
         stress_components.append(effr_stress)
-        weights.append(0.20)
+    else:
+        stress_components.append(0)
     
     # Component 3: Spread Volatility (5-day std)
-    if 'SOFR_Vol_5D' in df.columns:
+    if 'SOFR_Vol_5D' in df.columns and pd.notna(last_row['SOFR_Vol_5D']):
         vol = last_row['SOFR_Vol_5D']
+        # Clamp volatility to reasonable range (0-0.10% std)
+        vol = max(0, min(vol, 0.10))
         vol_stress = min((vol / 0.10) * 100, 100)  # 0.10% std = 100
         stress_components.append(vol_stress)
-        weights.append(0.15)
+    else:
+        stress_components.append(0)
     
-    # Component 4: RRP Usage (as % of typical range)
-    if 'RRP_Balance' in df.columns and 'MA20_RRP' in df.columns:
+    # Component 4: RRP Usage (inverted: low RRP = high stress)
+    if ('RRP_Balance' in df.columns and 'MA20_RRP' in df.columns and 
+        pd.notna(last_row['RRP_Balance']) and pd.notna(last_row['MA20_RRP'])):
         rrp_current = last_row['RRP_Balance']
         rrp_ma = last_row['MA20_RRP']
-        # High RRP = low stress (liquidity being parked)
-        # Low RRP = potential stress (liquidity tight)
-        rrp_ratio = rrp_current / rrp_ma if rrp_ma > 0 else 1
-        rrp_stress = max(0, (1 - rrp_ratio) * 100)  # Inverted: lower RRP = higher stress
+        if rrp_ma > 0:
+            rrp_ratio = rrp_current / rrp_ma
+            # High RRP = low stress (liquidity being parked)
+            # Low RRP = potential stress (liquidity tight)
+            rrp_stress = max(0, (1 - rrp_ratio) * 100)  # Inverted: lower RRP = higher stress
+            rrp_stress = min(100, rrp_stress)  # Clamp to 0-100
+        else:
+            rrp_stress = 0
         stress_components.append(rrp_stress)
-        weights.append(0.20)
+    else:
+        stress_components.append(0)
     
-    # Component 5: Repo Ops Usage
-    if 'Repo_Ops_Balance' in df.columns:
+    # Component 5: Repo Ops Usage (high usage = stress)
+    if 'Repo_Ops_Balance' in df.columns and pd.notna(last_row['Repo_Ops_Balance']):
         repo_usage = last_row['Repo_Ops_Balance']
         # High repo usage = stress (banks need liquidity)
+        repo_usage = max(0, repo_usage)  # No negative repo usage
         repo_stress = min((repo_usage / 100000) * 100, 100)  # 100B = 100
         stress_components.append(repo_stress)
-        weights.append(0.15)
+    else:
+        stress_components.append(0)
     
-    # Calculate weighted average
-    if len(stress_components) > 0:
-        # Normalize weights
-        total_weight = sum(weights)
-        normalized_weights = [w / total_weight for w in weights]
-        
-        stress_index = sum(s * w for s, w in zip(stress_components, normalized_weights))
-        stress_index = max(0, min(100, stress_index))  # Clip to 0-100
+    # Validate all components are numeric and in range 0-100
+    validated_components = []
+    for i, comp in enumerate(stress_components):
+        if pd.isna(comp) or not np.isfinite(comp):
+            validated_components.append(0)
+        else:
+            validated_components.append(max(0, min(100, comp)))
+    
+    stress_components = validated_components
+    
+    weights = [0.30, 0.20, 0.15, 0.20, 0.15]  # Fixed weights
+    
+    # Calculate weighted average only if we have valid components
+    if len(stress_components) == len(weights) and len(stress_components) > 0:
+        # All components are now validated and clamped
+        stress_index = sum(s * w for s, w in zip(stress_components, weights))
+        stress_index = max(0, min(100, stress_index))  # Final clamp to 0-100
     else:
         stress_index = 0
     

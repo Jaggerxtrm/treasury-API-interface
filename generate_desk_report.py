@@ -271,24 +271,36 @@ def extract_key_metrics(
         fiscal_last = fiscal_df.iloc[-1]
         fiscal_date = fiscal_df.index[-1]
 
+        # Note: Column names in fiscal_df may differ from expected names
+        # Use available columns and provide fallbacks
         metrics['fiscal'] = {
             'date': fiscal_date.strftime('%Y-%m-%d'),
-            'total_impulse': fiscal_last.get('Total_Impulse', 0),
-            'ma20_impulse': fiscal_last.get('MA20_Impulse', 0),
-            'ma5_impulse': fiscal_last.get('MA5_Impulse', 0),
-            'impulse_pct_gdp': fiscal_last.get('Impulse_Weekly_Pct_GDP', 0),
-            'mtd_impulse': fiscal_last.get('MTD_Impulse', 0),
-            'fytd_impulse': fiscal_last.get('FYTD_Impulse', 0),
-            'household_impulse': fiscal_last.get('Household_Impulse', 0),
-            'household_share': (fiscal_last.get('Household_Impulse', 0) /
-                              fiscal_last.get('Total_Impulse', 1) * 100) if fiscal_last.get('Total_Impulse', 0) != 0 else 0,
+            'total_impulse': fiscal_last.get('Net_Impulse', 0),  # Use Net_Impulse instead of Total_Impulse
+            'ma20_impulse': fiscal_last.get('MA20_Net_Impulse', 0),  # Use MA20_Net_Impulse instead of MA20_Impulse
+            'ma5_impulse': fiscal_last.get('MA5_Net_Impulse', 0),    # Use MA5_Net_Impulse instead of MA5_Impulse
+            'impulse_pct_gdp': fiscal_last.get('Weekly_Impulse_Pct_GDP', 0),  # This exists
+            'mtd_impulse': fiscal_last.get('MTD_Net', 0),          # Use MTD_Net instead of MTD_Impulse
+            'fytd_impulse': fiscal_last.get('FYTD_Net', 0),          # Use FYTD_Net instead of FYTD_Impulse
+            'household_impulse': fiscal_last.get('Household_Spending', 0),  # Use Household_Spending instead
+            'household_share': (fiscal_last.get('Household_Spending', 0) /
+                              fiscal_last.get('Net_Impulse', 1) * 100) if fiscal_last.get('Net_Impulse', 0) != 0 else 0,
             'tga_balance': fiscal_last.get('TGA_Balance', 0),
-            'yoy_fytd_change': fiscal_last.get('Cum_Diff_YoY', 0),
-            'vs_3y_baseline': fiscal_last.get('MA20_Impulse', 0) - fiscal_last.get('3Y_Avg_MA20', 0),
+            'yoy_fytd_change': fiscal_last.get('FYTD_YoY_Diff', 0),  # Use FYTD_YoY_Diff instead of Cum_Diff_YoY
+            'vs_3y_baseline': (fiscal_last.get('MA20_Net_Impulse', 0) - fiscal_last.get('3Y_Avg_Net_Impulse', 0)),
         }
 
     if not fed_df.empty:
-        fed_last = fed_df.iloc[-1]
+        # Use last valid values for key metrics (handles missing data for latest date)
+        def get_last_valid(col_name):
+            """Get last valid (non-NaN) value from a column"""
+            if col_name in fed_df.columns:
+                series = fed_df[col_name]
+                last_valid_idx = series.last_valid_index()
+                if last_valid_idx is not None:
+                    return series.loc[last_valid_idx]
+            return 0
+
+        fed_last = fed_df.iloc[-1]  # For columns that are complete
         fed_date = fed_df.index[-1]
 
         # Calculate temporal metrics
@@ -314,15 +326,15 @@ def extract_key_metrics(
 
         metrics['monetary'] = {
             'date': fed_date.strftime('%Y-%m-%d'),
-            'net_liquidity': fed_last.get('Net_Liquidity', 0),
+            'net_liquidity': get_last_valid('Net_Liquidity'),
             'net_liq_change': fed_last.get('Net_Liq_Change', 0),
-            'ma20_net_liq': fed_last.get('MA20_Net_Liq', 0),
+            'ma20_net_liq': get_last_valid('MA20_Net_Liq'),
             'yoy_net_liq_change': fed_last.get('YoY_Net_Liq_Change', 0),
             'fed_total_assets': fed_last.get('Fed_Total_Assets', 0),
             'qt_pace_weekly': fed_last.get('QT_Pace_Assets_Weekly', 0),
-            'rrp_balance': fed_last.get('RRP_Balance', 0),
+            'rrp_balance': get_last_valid('RRP_Balance'),
             'rrp_change': fed_last.get('RRP_Change', 0),
-            'ma20_rrp': fed_last.get('MA20_RRP', 0),
+            'ma20_rrp': get_last_valid('MA20_RRP'),
             'tga_balance': fed_last.get('TGA_Balance', 0),
         }
 
