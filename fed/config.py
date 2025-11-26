@@ -30,7 +30,7 @@ DEFAULT_START_DATE = "2022-01-01"
 FRED_SERIES_MAP = {
     # Liquidity Components
     "RRPONTSYD": "RRP_Balance",      # Overnight Reverse Repo
-    "RPONTSYD": "Repo_Ops_Balance",  # Overnight Repo Operations
+    "RPONTTLD": "Repo_Ops_Balance",  # Total Repo Operations (overnight + term)
     "WALCL": "Fed_Total_Assets",     # Total Assets
     "WSHOMCB": "Fed_MBS_Holdings",   # MBS Holdings
     "TREAST": "Fed_Treasury_Holdings", # Treasury Holdings
@@ -74,7 +74,7 @@ SERIES_FREQUENCIES = {
     "T10Y2Y": "daily",
     "T10YIE": "daily",
     "T5YIE": "daily",
-    "RPONTSYD": "daily",
+    "RPONTTLD": "daily",  # Total Repo (overnight + term)
     "SRFTSYD": "daily",
     
     # Policy-dependent

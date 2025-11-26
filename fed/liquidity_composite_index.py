@@ -306,9 +306,12 @@ def calculate_monetary_component(df_fed):
         rrp_norm = normalize_series(rrp_release, method='zscore')
         monetary_index += rrp_norm * MONETARY_WEIGHTS['rrp_change']
         
-    # 4. Repo Operations (Active Injection)
-    if 'Repo_Ops_Balance' in df_fed.columns:
-        repo_ops_norm = normalize_series(df_fed['Repo_Ops_Balance'], method='zscore')
+    # 4. Repo Operations (Active Injection) - use _M version in Millions
+    if 'Repo_Ops_Balance_M' in df_fed.columns:
+        repo_ops_norm = normalize_series(df_fed['Repo_Ops_Balance_M'], method='zscore')
+    elif 'Repo_Ops_Balance' in df_fed.columns:
+        # Fallback: assume original is in Billions, convert
+        repo_ops_norm = normalize_series(df_fed['Repo_Ops_Balance'] * 1000, method='zscore')
         monetary_index += repo_ops_norm * MONETARY_WEIGHTS['repo_operations']
 
     # 5. SOFR Stress (wider spread = tighter, negative for liquidity)

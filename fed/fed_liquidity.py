@@ -242,11 +242,11 @@ def calculate_effective_policy_stance(df):
         # Legacy metric per calcoli che usano solo la direzione del QT
         df['QT_Pace_Nominal'] = -df['Flow_Nominal_Assets']  # Positivo = pace of contraction
 
-    if 'MBS_to_Bills_Reinvestment' in df.columns and 'Repo_Ops_Balance' in df.columns:
+    if 'MBS_to_Bills_Reinvestment' in df.columns and 'Repo_Ops_Balance_M' in df.columns:
         # 4b. QUALITÀ: Effetto "shadow QE" da reinvestimento + repo operations
         # Questo misura il supporto qualitativo al mercato (duration, risk)
         # NON è net liquidity ma ha effetto bullish per asset prices
-        df['QE_Effective'] = df['MBS_to_Bills_Reinvestment'] + df['Repo_Ops_Balance']
+        df['QE_Effective'] = df['MBS_to_Bills_Reinvestment'] + df['Repo_Ops_Balance_M']
 
         # Alias semantico per chiarezza
         df['Qualitative_Easing_Support'] = df['QE_Effective']
@@ -263,27 +263,27 @@ def calculate_metrics(df):
     """
     Calculates derived metrics: Net Liquidity, Spreads, Changes.
     """
-    # 0. Calculate Effective Policy Stance (New Phase 1)
-    df = calculate_effective_policy_stance(df)
-
-    # 1. Net Liquidity Calculation
+    # 0. Unit Conversions FIRST (before any calculations)
     # Net Liq = Fed Assets - RRP - TGA
     # Units: All in Millions
     # - Fed_Total_Assets: Millions (WALCL from FRED)
     # - RRP_Balance: Billions (convert to Millions)
+    # - Repo_Ops_Balance: Billions (convert to Millions) - RPONTTLD
     # - TGA_Balance: Millions (from DTS)
-
-    # Convert Billions/Millions if needed.
-    # FRED RRP is in Billions.
-    # FRED WALCL (Assets) is in Millions.
-    # Let's standardize to Millions.
 
     if 'RRP_Balance' in df.columns:
         df['RRP_Balance_M'] = df['RRP_Balance'] * 1000 # Billions -> Millions
 
+    # RPONTTLD (Repo_Ops_Balance) is also in Billions - convert to Millions
+    if 'Repo_Ops_Balance' in df.columns:
+        df['Repo_Ops_Balance_M'] = df['Repo_Ops_Balance'] * 1000 # Billions -> Millions
+
     if 'Fed_Total_Assets' in df.columns:
         # WALCL is in Millions
         pass
+
+    # 1. Calculate Effective Policy Stance (needs _M versions)
+    df = calculate_effective_policy_stance(df)
 
     # Calculate Net Liquidity
     if all(col in df.columns for col in ['Fed_Total_Assets', 'RRP_Balance_M', 'TGA_Balance']):
@@ -594,9 +594,9 @@ def calculate_qtd_metrics(df):
         metrics['sofr_spread_qtd_vol'] = qtd_data['Spread_SOFR_IORB'].std()
         metrics['sofr_spread_qtd_avg'] = qtd_data['Spread_SOFR_IORB'].mean()
     
-    # Repo Usage QTD
-    if 'Repo_Ops_Balance' in df.columns:
-        metrics['repo_qtd_avg'] = qtd_data['Repo_Ops_Balance'].mean()
+    # Repo Usage QTD (in Millions)
+    if 'Repo_Ops_Balance_M' in df.columns:
+        metrics['repo_qtd_avg'] = qtd_data['Repo_Ops_Balance_M'].mean()
     
     return metrics
 
@@ -792,11 +792,12 @@ def calculate_stress_index(df):
         stress_components.append(0)
     
     # Component 5: Repo Ops Usage (high usage = stress)
-    if 'Repo_Ops_Balance' in df.columns and pd.notna(last_row['Repo_Ops_Balance']):
-        repo_usage = last_row['Repo_Ops_Balance']
+    # Repo_Ops_Balance_M is in Millions
+    if 'Repo_Ops_Balance_M' in df.columns and pd.notna(last_row['Repo_Ops_Balance_M']):
+        repo_usage = last_row['Repo_Ops_Balance_M']
         # High repo usage = stress (banks need liquidity)
         repo_usage = max(0, repo_usage)  # No negative repo usage
-        repo_stress = min((repo_usage / 100000) * 100, 100)  # 100B = 100
+        repo_stress = min((repo_usage / 100000) * 100, 100)  # 100B (100,000M) = 100
         stress_components.append(repo_stress)
     else:
         stress_components.append(0)
@@ -1442,7 +1443,7 @@ def generate_report(df, series_metadata=None):
 
         # Breakdown if available
         reinvest = last_row.get('MBS_to_Bills_Reinvestment', 0)
-        repo = last_row.get('Repo_Ops_Balance', 0)
+        repo = last_row.get('Repo_Ops_Balance_M', 0)  # Now in Millions
         if reinvest > 0 or repo > 0:
             print(f"   Components:")
             if reinvest > 0:
