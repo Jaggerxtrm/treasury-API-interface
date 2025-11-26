@@ -1317,14 +1317,16 @@ def generate_report(df, weekly_df, gdp_info):
     # ==========================================================================
     
     print("\n" + "-"*70)
-    print("📊 SECTION 9: RECENT TREND (Last 5 Trading Days)")
+    print("📊 SECTION 9: RECENT TREND (Last 20 Trading Days)")
     print("-"*70)
     
     cols_to_show = ['Total_Spending', 'Total_Taxes', 'Net_Impulse', 'MA20_Net_Impulse', 
                     'Weekly_Impulse_Pct_GDP', 'TGA_Balance', 'Fiscal_Pressure_Index']
-    available_cols = [c for c in cols_to_show if c in recent.columns]
+    available_cols = [c for c in cols_to_show if c in df.columns]
     
-    print(f"\n{recent[available_cols].tail(5).to_string(float_format='{:,.2f}'.format)}")
+    # Get last 20 trading days (fiscal data doesn't have weekends)
+    trend_data = df[available_cols].tail(20).sort_index(ascending=False)
+    print(f"\n{trend_data.to_string(float_format='{:,.2f}'.format)}")
     
     # ==========================================================================
     # EXPORT DATA

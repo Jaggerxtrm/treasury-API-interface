@@ -97,8 +97,9 @@ def generate_report(merged_df: pd.DataFrame) -> None:
         spread = (last_row["BGCR_Rate"] - last_row["TGCR_Rate"]) * 100
         print(f"BGCR - TGCR:         {spread:.1f} bps")
     
-    print("\n--- RECENT TREND (Last 5 Days) ---")
-    print(recent.to_string(float_format="{:.2f}".format))
+    print("\n--- RECENT TREND (Last 20 Trading Days) ---")
+    trend_data = merged_df.tail(20).sort_index(ascending=False)
+    print(trend_data.to_string(float_format="{:.2f}".format))
     
     # Export
     csv_path = get_output_path("nyfed_reference_rates.csv")

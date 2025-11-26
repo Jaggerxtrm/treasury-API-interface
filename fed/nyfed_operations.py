@@ -100,12 +100,16 @@ def generate_report(df_repo: pd.DataFrame, df_rrp: pd.DataFrame) -> None:
                 value_dict.get('format', '.2f')
             )
         
-        # Recent trend
-        print("\n--- RECENT REPO TREND (Last 5 Days) ---")
-        cols = ['totalAmtAccepted', 'totalAmtSubmitted', 'weightedAvgRate']
+        # Recent trend - convert to millions for display
+        print("\n--- RECENT REPO TREND (Last 20 Trading Days) ---")
+        cols = ['totalAmtAccepted', 'totalAmtSubmitted']
         cols = [c for c in cols if c in df_repo.columns]
         if cols:
-            report.print_table(df_repo[cols], max_rows=5)
+            repo_display = df_repo[cols].copy()
+            for col in cols:
+                repo_display[col] = repo_display[col] / 1e6  # Convert to millions
+            repo_display.columns = ['Repo_Accepted_M', 'Submitted_M']
+            report.print_table(repo_display, max_rows=20)
     
     if not df_rrp.empty:
         last_rrp = df_rrp.iloc[-1]
@@ -113,19 +117,20 @@ def generate_report(df_repo: pd.DataFrame, df_rrp: pd.DataFrame) -> None:
         # RRP Operations Section
         report.print_subheader("REVERSE REPO OPERATIONS (Liquidity Drain)")
         
+        # Note: NY Fed values are in dollars, convert to billions for display
         metrics = {}
         if 'totalAmtAccepted' in last_rrp:
             metrics['RRP Balance'] = {
-                'value': last_rrp['totalAmtAccepted'],
+                'value': last_rrp['totalAmtAccepted'] / 1e9,  # Convert to billions
                 'unit': 'B',
-                'format': ',.0f'
+                'format': ',.2f'
             }
         
         if 'totalAmtSubmitted' in last_rrp:
             metrics['Total Submitted'] = {
-                'value': last_rrp['totalAmtSubmitted'],
+                'value': last_rrp['totalAmtSubmitted'] / 1e9,  # Convert to billions
                 'unit': 'B',
-                'format': ',.0f'
+                'format': ',.2f'
             }
         
         if 'weightedAvgRate' in last_rrp:
@@ -143,12 +148,16 @@ def generate_report(df_repo: pd.DataFrame, df_rrp: pd.DataFrame) -> None:
                 value_dict.get('format', '.2f')
             )
         
-        # Recent trend
-        print("\n--- RECENT RRP TREND (Last 5 Days) ---")
-        cols = ['totalAmtAccepted', 'totalAmtSubmitted', 'weightedAvgRate']
+        # Recent trend - convert to billions for display
+        print("\n--- RECENT RRP TREND (Last 20 Trading Days) ---")
+        cols = ['totalAmtAccepted', 'totalAmtSubmitted']
         cols = [c for c in cols if c in df_rrp.columns]
         if cols:
-            report.print_table(df_rrp[cols], max_rows=5)
+            rrp_display = df_rrp[cols].copy()
+            for col in cols:
+                rrp_display[col] = rrp_display[col] / 1e9  # Convert to billions
+            rrp_display.columns = ['RRP_Balance_B', 'Submitted_B']
+            report.print_table(rrp_display, max_rows=20)
     
     # Export
     print("\n" + "="*60)

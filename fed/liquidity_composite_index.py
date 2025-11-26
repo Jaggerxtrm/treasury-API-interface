@@ -217,8 +217,15 @@ def calculate_fiscal_component(df_fiscal):
     fiscal_index = pd.Series(0.0, index=df_fiscal.index)
 
     # 1. Fiscal Impulse (MA20, normalized)
-    if 'MA20_Impulse' in df_fiscal.columns:
-        impulse_norm = normalize_series(df_fiscal['MA20_Impulse'], method='zscore')
+    # Try MA20_Net_Impulse first (new name), fall back to MA20_Impulse (old name)
+    impulse_col = None
+    if 'MA20_Net_Impulse' in df_fiscal.columns:
+        impulse_col = 'MA20_Net_Impulse'
+    elif 'MA20_Impulse' in df_fiscal.columns:
+        impulse_col = 'MA20_Impulse'
+    
+    if impulse_col:
+        impulse_norm = normalize_series(df_fiscal[impulse_col], method='zscore')
         fiscal_index += impulse_norm * FISCAL_WEIGHTS['impulse']
 
     # 2. TGA Drawdown (negative change = injection, so invert sign)
@@ -396,7 +403,7 @@ def generate_report(indices):
         print("No data available for report")
         return
 
-    recent = indices.tail(10)
+    recent = indices.tail(30)  # Get more days to account for weekends
     last_row = indices.iloc[-1]
     last_date = indices.index[-1].strftime('%Y-%m-%d')
 
@@ -429,9 +436,11 @@ def generate_report(indices):
     else:
         print("Status: VERY TIGHT - Stressed liquidity environment")
 
-    print("\n--- RECENT TREND (Last 5 Days) ---")
+    print("\n--- RECENT TREND (Last 20 Trading Days) ---")
     cols = ['LCI', 'LCI_MA20', 'Fiscal_Index', 'Monetary_Index', 'Plumbing_Index']
-    print(recent[cols].sort_index(ascending=False).head(5).to_string(float_format="{:.2f}".format))
+    # Filter out weekend NaN rows for cleaner display
+    trend_data = recent[cols].dropna(how='all').sort_index(ascending=False).head(20)
+    print(trend_data.to_string(float_format="{:.2f}".format))
 
     # Export
     csv_path = "liquidity_composite_index.csv"

@@ -69,13 +69,14 @@ def load_all_data() -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, Dict]:
         gdp_info = fetch_current_gdp()
         current_gdp = gdp_info[0]
 
-        fiscal_df = process_fiscal_analysis(df_trans, df_tga, current_gdp)
+        fiscal_df, weekly_fiscal_df = process_fiscal_analysis(df_trans, df_tga, current_gdp)
 
         metadata['fiscal'] = {
             'gdp_value': current_gdp,
             'gdp_quarter': gdp_info[2],
             'gdp_is_estimated': gdp_info[4],
             'records': len(fiscal_df),
+            'weekly_records': len(weekly_fiscal_df),
             'last_date': fiscal_df.index[-1].strftime('%Y-%m-%d')
         }
         print(f"✓ Fiscal: {len(fiscal_df)} records through {metadata['fiscal']['last_date']}")

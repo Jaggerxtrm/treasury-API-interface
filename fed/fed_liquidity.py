@@ -140,6 +140,48 @@ def fetch_all_data():
     
     print("✓ Selective forward fill applied - preserving daily data integrity")
     
+    # ==========================================================================
+    # INTEGRATE NY FED REFERENCE RATES (more timely than FRED)
+    # ==========================================================================
+    nyfed_rates_path = get_output_path("nyfed_reference_rates.csv")
+    if os.path.exists(nyfed_rates_path):
+        try:
+            nyfed_rates = pd.read_csv(nyfed_rates_path, index_col=0, parse_dates=True)
+            print(f"Loading NY Fed reference rates: {len(nyfed_rates)} records")
+            
+            # Map NY Fed columns to our column names
+            rate_mapping = {
+                'SOFR_Rate': 'SOFR_Rate',
+                'EFFR_Rate': 'EFFR_Rate',
+                'TGCR_Rate': 'TGCR_Rate',
+                'BGCR_Rate': 'BGCR_Rate',  # Additional rate
+                'OBFR_Rate': 'OBFR_Rate',  # Additional rate
+            }
+            
+            # Update FRED rates with NY Fed data where FRED has NaN
+            for nyfed_col, our_col in rate_mapping.items():
+                if nyfed_col in nyfed_rates.columns:
+                    if our_col in df.columns:
+                        # Fill NaN in FRED data with NY Fed data
+                        mask = df[our_col].isna()
+                        nyfed_reindexed = nyfed_rates.reindex(df.index)[nyfed_col]
+                        df.loc[mask, our_col] = nyfed_reindexed.loc[mask]
+                    else:
+                        # Column doesn't exist, add it from NY Fed
+                        df[our_col] = nyfed_rates.reindex(df.index)[nyfed_col]
+            
+            # Forward fill rates for recent days (max 3 days to cover weekends)
+            rate_cols = [c for c in rate_mapping.values() if c in df.columns]
+            for col in rate_cols:
+                df[col] = df[col].ffill(limit=3)
+            
+            print("✓ NY Fed reference rates integrated (fills FRED gaps + 3-day forward fill)")
+            series_metadata['NYFED_RATES'] = nyfed_rates.index[-1]
+        except Exception as e:
+            print(f"⚠️  Could not load NY Fed rates: {e}")
+    else:
+        print("ℹ️  NY Fed rates file not found - run nyfed_reference_rates.py first for fresher data")
+    
     # Ensure START_DATE is datetime for comparison and filter
     start_dt = pd.to_datetime(START_DATE)
     df = df[df.index >= start_dt]
@@ -928,14 +970,14 @@ def generate_report(df, series_metadata=None):
 
     recent = df.tail(5)
     
-    # Use last row with valid data (not all NaN) for reporting
-    # Check key columns to determine if data is valid
-    key_cols = ['RRP_Balance', 'SOFR_Rate', 'Net_Liquidity']
-    available_key_cols = [c for c in key_cols if c in df.columns]
+    # Use last row with valid CORE data (RRP and Net_Liquidity are the key indicators)
+    # Rates can be forward-filled but RRP/Net_Liq must be actual data
+    core_cols = ['RRP_Balance', 'Net_Liquidity']
+    available_core_cols = [c for c in core_cols if c in df.columns]
     
-    if available_key_cols:
-        # Find the last row where at least one key column is not NaN
-        valid_mask = df[available_key_cols].notna().any(axis=1)
+    if available_core_cols:
+        # Find the last row where at least one core column is not NaN
+        valid_mask = df[available_core_cols].notna().any(axis=1)
         if valid_mask.any():
             last_valid_idx = df[valid_mask].index[-1]
             last_row = df.loc[last_valid_idx]
@@ -1242,11 +1284,13 @@ def generate_report(df, series_metadata=None):
     if 'Swap_Lines' in df.columns:
         print(f"Swap Lines Usage:  ${last_row['Swap_Lines']:,.0f} M")
 
-    print("\n--- RECENT TREND (Last 5 Days) ---")
+    print("\n--- RECENT TREND (Last 20 Trading Days) ---")
     cols = ['Net_Liquidity', 'RRP_Balance', 'SOFR_Rate', 'Spread_SOFR_IORB', 'QT_Pace_Assets_Weekly']
     cols = [c for c in cols if c in df.columns]
     if cols:
-        print(recent[cols].sort_index(ascending=False).to_string(float_format="{:,.2f}".format))
+        # Get last 30 calendar days, filter out weekends/NaN, show 20
+        trend_data = df.tail(30)[cols].dropna(how='all').sort_index(ascending=False).head(20)
+        print(trend_data.to_string(float_format="{:,.2f}".format))
     
     # Export full data
     csv_path = get_output_path("fed_liquidity_full.csv")
