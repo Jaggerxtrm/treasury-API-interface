@@ -336,6 +336,13 @@ def extract_key_metrics(
             'rrp_change': fed_last.get('RRP_Change', 0),
             'ma20_rrp': get_last_valid('MA20_RRP'),
             'tga_balance': fed_last.get('TGA_Balance', 0),
+            # Effective Policy Stance metrics (NEW)
+            'net_balance_sheet_flow': get_last_valid('Net_Balance_Sheet_Flow') if 'Net_Balance_Sheet_Flow' in fed_df.columns else get_last_valid('Flow_Nominal_Assets'),
+            'qualitative_easing_support': get_last_valid('Qualitative_Easing_Support') if 'Qualitative_Easing_Support' in fed_df.columns else get_last_valid('QE_Effective'),
+            'mbs_runoff_weekly': fed_last.get('MBS_Runoff_Weekly', 0),
+            'bill_purchases_weekly': fed_last.get('Bill_Purchases_Weekly', 0),
+            'mbs_to_bills_reinvestment': fed_last.get('MBS_to_Bills_Reinvestment', 0),
+            'repo_ops_balance': fed_last.get('Repo_Ops_Balance', 0),
         }
 
         metrics['plumbing'] = {
@@ -702,6 +709,68 @@ def build_final_report(
         report_lines.append("")
         report_lines.append(f"Regime:                   {regime.get('current_regime', 'UNKNOWN')} ({regime.get('confidence', 0):.0f}% confidence)")
         report_lines.append(f"Signals:                  {', '.join(regime.get('signals', []))}")
+        report_lines.append("")
+
+    # NEW: 5.4 Effective Policy Stance
+    if 'monetary' in metrics:
+        mon = metrics['monetary']
+
+        report_lines.append("5.4 Effective Policy Stance (QT/QE Decomposition)")
+        report_lines.append("")
+
+        # Quantità: Net Balance Sheet Flow
+        flow = mon.get('net_balance_sheet_flow', 0)
+        flow_direction = "QE (Injection)" if flow > 0 else "QT (Drain)" if flow < 0 else "Neutral"
+        flow_icon = "💰" if flow > 0 else "📉" if flow < 0 else "➡️"
+
+        report_lines.append(f"QUANTITÀ - Net Balance Sheet Flow:")
+        report_lines.append(f"  Weekly Change:        {flow_icon} ${flow:,.0f}M")
+        report_lines.append(f"  Direction:            {flow_direction}")
+        report_lines.append("")
+
+        # Open Market Operations
+        mbs_runoff = mon.get('mbs_runoff_weekly', 0)
+        bill_purchases = mon.get('bill_purchases_weekly', 0)
+        reinvestment = mon.get('mbs_to_bills_reinvestment', 0)
+
+        if mbs_runoff != 0 or bill_purchases != 0:
+            report_lines.append(f"Open Market Operations:")
+            report_lines.append(f"  MBS Runoff:           ${mbs_runoff:,.0f}M")
+            report_lines.append(f"  Bill Purchases:       ${bill_purchases:,.0f}M")
+            if reinvestment > 0:
+                report_lines.append(f"  > Reinvestimento:     ${reinvestment:,.0f}M (MBS→Bills)")
+            report_lines.append("")
+
+        # Qualità: Shadow QE Support
+        qual = mon.get('qualitative_easing_support', 0)
+        repo = mon.get('repo_ops_balance', 0)
+
+        report_lines.append(f"QUALITÀ - Shadow QE Support:")
+        report_lines.append(f"  Total Support:        ${qual:,.0f}M")
+        if reinvestment > 0 or repo > 0:
+            report_lines.append(f"  Components:")
+            if reinvestment > 0:
+                report_lines.append(f"    • Reinvestimento:   ${reinvestment:,.0f}M")
+            if repo > 0:
+                report_lines.append(f"    • Repo Operations:  ${repo:,.0f}M")
+        report_lines.append(f"  (Supporto qualitativo: duration, risk appetite)")
+        report_lines.append("")
+
+        # Interpretazione
+        report_lines.append(f"Interpretazione:")
+        if flow < -50:
+            if qual > 20:
+                report_lines.append(f"  • QT aggressivo (${flow:,.0f}M) parzialmente compensato")
+                report_lines.append(f"    da shadow QE (${qual:,.0f}M)")
+            else:
+                report_lines.append(f"  • QT aggressivo senza compensazione significativa")
+        elif flow > 50:
+            report_lines.append(f"  • QE attivo: sia quantità che qualità espansive")
+        else:
+            if qual > 20:
+                report_lines.append(f"  • Balance sheet stabile ma supporto qualitativo attivo")
+            else:
+                report_lines.append(f"  • Policy stance sostanzialmente neutrale")
         report_lines.append("")
 
     # ================================================================

@@ -1369,7 +1369,82 @@ def generate_report(df, series_metadata=None):
         print(f"  > Bills (QE):    ${last_row['Fed_Bill_Holdings']:,.0f} M")
     if 'Fed_Coupon_Holdings' in df.columns:
         print(f"  > Coupons:       ${last_row['Fed_Coupon_Holdings']:,.0f} M")
-        
+
+    # ===== EFFECTIVE POLICY STANCE (NEW SECTION) =====
+    print("\n" + "─"*60)
+    print("EFFECTIVE POLICY STANCE (QT/QE DECOMPOSITION)")
+    print("─"*60)
+    print("\nDistinzione tra QUANTITÀ (balance sheet) e QUALITÀ (shadow QE):")
+
+    # 1. QUANTITÀ: Net Balance Sheet Flow
+    if 'Net_Balance_Sheet_Flow' in df.columns or 'Flow_Nominal_Assets' in df.columns:
+        flow_col = 'Net_Balance_Sheet_Flow' if 'Net_Balance_Sheet_Flow' in df.columns else 'Flow_Nominal_Assets'
+        flow_val = last_row[flow_col]
+        flow_direction = "QE (Injection)" if flow_val > 0 else "QT (Drain)" if flow_val < 0 else "Neutral"
+        flow_icon = "💰" if flow_val > 0 else "📉" if flow_val < 0 else "➡️"
+
+        print(f"\n📊 QUANTITÀ - Net Balance Sheet Flow:")
+        print(f"   Weekly Change:        {flow_icon} ${flow_val:,.0f} M")
+        print(f"   Direction:            {flow_direction}")
+        print(f"   (Misura QT/QE puro in termini di net liquidity)")
+
+    # 2. Open Market Operations Detail
+    if 'MBS_Runoff_Weekly' in df.columns and 'Bill_Purchases_Weekly' in df.columns:
+        mbs_runoff = last_row.get('MBS_Runoff_Weekly', 0)
+        bill_purchases = last_row.get('Bill_Purchases_Weekly', 0)
+
+        print(f"\n🔄 Operazioni Open Market (Weekly):")
+        print(f"   MBS Runoff:           ${mbs_runoff:,.0f} M")
+        print(f"   Bill Purchases:       ${bill_purchases:,.0f} M")
+
+        if 'MBS_to_Bills_Reinvestment' in df.columns:
+            reinvestment = last_row['MBS_to_Bills_Reinvestment']
+            if reinvestment > 0:
+                print(f"   > Reinvestimento:     ${reinvestment:,.0f} M (MBS→Bills)")
+            else:
+                print(f"   > Reinvestimento:     $0 M (no MBS→Bills swap)")
+
+    # 3. QUALITÀ: Shadow QE Support
+    if 'Qualitative_Easing_Support' in df.columns or 'QE_Effective' in df.columns:
+        qual_col = 'Qualitative_Easing_Support' if 'Qualitative_Easing_Support' in df.columns else 'QE_Effective'
+        qual_val = last_row[qual_col]
+
+        print(f"\n🎯 QUALITÀ - Shadow QE Support:")
+        print(f"   Total Support:        ${qual_val:,.0f} M")
+
+        # Breakdown if available
+        reinvest = last_row.get('MBS_to_Bills_Reinvestment', 0)
+        repo = last_row.get('Repo_Ops_Balance', 0)
+        if reinvest > 0 or repo > 0:
+            print(f"   Components:")
+            if reinvest > 0:
+                print(f"     • Reinvestimento:   ${reinvest:,.0f} M")
+            if repo > 0:
+                print(f"     • Repo Operations:  ${repo:,.0f} M")
+        print(f"   (Supporto qualitativo: duration, risk appetite)")
+        print(f"   (NON è net liquidity ma ha effetto bullish)")
+
+    # 4. Summary
+    if ('Net_Balance_Sheet_Flow' in df.columns or 'Flow_Nominal_Assets' in df.columns) and \
+       ('Qualitative_Easing_Support' in df.columns or 'QE_Effective' in df.columns):
+        flow_val = last_row.get('Net_Balance_Sheet_Flow', last_row.get('Flow_Nominal_Assets', 0))
+        qual_val = last_row.get('Qualitative_Easing_Support', last_row.get('QE_Effective', 0))
+
+        print(f"\n💡 Interpretazione:")
+        if flow_val < -50:  # Strong QT
+            if qual_val > 20:
+                print(f"   • QT aggressivo (${flow_val:,.0f}M) parzialmente")
+                print(f"     compensato da shadow QE (${qual_val:,.0f}M)")
+            else:
+                print(f"   • QT aggressivo senza compensazione significativa")
+        elif flow_val > 50:  # Strong QE
+            print(f"   • QE attivo: sia quantità che qualità espansive")
+        else:  # Neutral quantity
+            if qual_val > 20:
+                print(f"   • Balance sheet stabile ma supporto qualitativo attivo")
+            else:
+                print(f"   • Policy stance sostanzialmente neutrale")
+
     print("\n--- INFLATION & STRESS INDICATORS ---")
     if 'Breakeven_10Y' in df.columns:
         print(f"10Y Breakeven:     {last_row['Breakeven_10Y']:.2f}%")
