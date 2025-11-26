@@ -220,41 +220,43 @@ def calculate_effective_policy_stance(df):
             0
         )
     
-    # 4. Calcola la stance effettiva
-    # QT Puro = riduzione totale assets senza reinvestimento
-    # QE Effettivo = reinvestimento + REPO attivo
-    # Repo_Ops_Balance include SRF (passivo) ma se espandiamo a OMO includerà anche attivo.
-    # Per ora assumiamo che Repo_Ops_Balance rifletta l'iniezione repo totale.
-    
+    # 4. Calcola le due dimensioni separate della policy stance
+    #
+    # IMPORTANTE: Non sommare Flow_Nominal_Assets e MBS_to_Bills_Reinvestment!
+    # Questo causa DOUBLE COUNTING perché il reinvestimento è già incluso in Flow_Nominal_Assets.
+    #
+    # Esempio: Se MBS scendono -30B e Bills salgono +20B:
+    #   - Flow_Nominal_Assets = -10B (net QT, già include il +20B di Bills)
+    #   - MBS_to_Bills_Reinvestment = 20B (isolated reinvestment)
+    #   - Sommarli = -10B + 20B = +10B ❌ ERRORE: conta 2 volte i Bills!
+    #
+    # SOLUZIONE: Separare le due dimensioni (Gemini + Cursor consensus):
+
     if 'Fed_Total_Assets' in df.columns:
-        df['QT_Pace_Nominal'] = -df['Fed_Total_Assets'].diff(5)  # Negativo = QT (assets scendono)
-        # Nota: se assets scendono, diff è neg, -diff è pos (pace of QT). 
-        # Manteniamo la convenzione: QT Pace positivo = contrazione.
-        # O meglio: usiamo convenzione "Flow": positivo = iniezione, negativo = drenaggio.
-        
-        # Ricalcoliamo con convenzione Flow:
+        # 4a. QUANTITÀ: Misura il QT/QE puro in termini di net liquidity
         df['Flow_Nominal_Assets'] = df['Fed_Total_Assets'].diff(5) # Pos = QE, Neg = QT
-        
+
+        # Alias per backward compatibility e chiarezza semantica
+        df['Net_Balance_Sheet_Flow'] = df['Flow_Nominal_Assets']
+
+        # Legacy metric per calcoli che usano solo la direzione del QT
+        df['QT_Pace_Nominal'] = -df['Flow_Nominal_Assets']  # Positivo = pace of contraction
+
     if 'MBS_to_Bills_Reinvestment' in df.columns and 'Repo_Ops_Balance' in df.columns:
-        # QE Effettivo = Reinvestimento (che è liquidity neutral per balance sheet ma bullish per risk) + Repo Injection
-        # Nota: Reinvestimento non aggiunge net liquidity ma sposta duration risk.
-        # Tuttavia, l'utente lo vede come "QE".
+        # 4b. QUALITÀ: Effetto "shadow QE" da reinvestimento + repo operations
+        # Questo misura il supporto qualitativo al mercato (duration, risk)
+        # NON è net liquidity ma ha effetto bullish per asset prices
         df['QE_Effective'] = df['MBS_to_Bills_Reinvestment'] + df['Repo_Ops_Balance']
-        
-        # Net Policy Stance:
-        # Se Flow_Nominal_Assets è -95B (QT) ma QE_Effective è +20B (Reinvest + Repo)
-        # La stance netta è complessa. 
-        # L'utente vuole vedere: "Effective Policy Stance"
-        # Definiamo Net_Policy_Stance come la somma dei flussi espansivi meno quelli contrattivi?
-        # O semplicemente Flow_Nominal_Assets + "Boost" da Reinvestimento?
-        # Il reinvestimento è uno swap, non net new money. Ma supporta il mercato.
-        # Consideriamolo come un fattore additivo alla "Liquidity Quality".
-        
-        # Per ora seguiamo la logica proposta:
-        if 'Flow_Nominal_Assets' in df.columns:
-             # Net Policy Stance = Flow Totale + Reinvestimento (che conta come "shadow QE")
-             df['Net_Policy_Stance'] = df['Flow_Nominal_Assets'] + df['MBS_to_Bills_Reinvestment']
-    
+
+        # Alias semantico per chiarezza
+        df['Qualitative_Easing_Support'] = df['QE_Effective']
+
+    # DEPRECATO: Net_Policy_Stance causava double counting
+    # Se necessario per backward compatibility, ridefinito come alias puro di Flow_Nominal_Assets
+    # (senza sommare il reinvestimento che è già incluso)
+    if 'Flow_Nominal_Assets' in df.columns:
+        df['Net_Policy_Stance'] = df['Flow_Nominal_Assets']  # Solo quantità, no double counting
+
     return df
 
 def calculate_metrics(df):
