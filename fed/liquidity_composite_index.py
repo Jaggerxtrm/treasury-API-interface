@@ -375,9 +375,9 @@ def calculate_composite_index(data):
         indices['Plumbing_Index'] * WEIGHTS['market_plumbing']
     )
 
-    # Smooth with MA
-    indices['LCI_MA20'] = indices['LCI'].rolling(window=20).mean()
-    indices['LCI_MA5'] = indices['LCI'].rolling(window=5).mean()
+    # Smooth with MA (min_periods for weekend gaps)
+    indices['LCI_MA20'] = indices['LCI'].rolling(window=20, min_periods=14).mean()
+    indices['LCI_MA5'] = indices['LCI'].rolling(window=5, min_periods=3).mean()
 
     # Regime indicators
     indices['LCI_Regime'] = pd.cut(

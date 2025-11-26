@@ -302,8 +302,8 @@ def calculate_metrics(df):
 
     # 5. Volatility & Stress
     if 'SOFR_Rate' in df.columns:
-        # Rolling 5-day Standard Deviation
-        df['SOFR_Vol_5D'] = df['SOFR_Rate'].rolling(window=5).std()
+        # Rolling 5-day Standard Deviation (min_periods=2 for weekend gaps)
+        df['SOFR_Vol_5D'] = df['SOFR_Rate'].rolling(window=5, min_periods=2).std()
         
         # Stress Flag: SOFR > IORB + 5bps (0.05%)
         if 'IORB_Rate' in df.columns:
@@ -312,15 +312,18 @@ def calculate_metrics(df):
     # 6. Analytical Alignment (Phase 3)
     
     # Moving Averages (Smooth Noise)
+    # Use min_periods to handle weekend/holiday gaps (NaN values)
+    # 20-day calendar window has ~13-14 business days, use min_periods=10 for robustness
+    # 5-day calendar window has ~3-4 business days, use min_periods=2
     if 'RRP_Balance' in df.columns:
-        df['MA20_RRP'] = df['RRP_Balance'].rolling(window=20).mean()
-        df['MA5_RRP'] = df['RRP_Balance'].rolling(window=5).mean()
+        df['MA20_RRP'] = df['RRP_Balance'].rolling(window=20, min_periods=10).mean()
+        df['MA5_RRP'] = df['RRP_Balance'].rolling(window=5, min_periods=2).mean()
         
     if 'Fed_Total_Assets' in df.columns:
-        df['MA20_Assets'] = df['Fed_Total_Assets'].rolling(window=20).mean()
+        df['MA20_Assets'] = df['Fed_Total_Assets'].rolling(window=20, min_periods=10).mean()
         
     if 'Spread_SOFR_IORB' in df.columns:
-        df['MA20_Spread_SOFR_IORB'] = df['Spread_SOFR_IORB'].rolling(window=20).mean()
+        df['MA20_Spread_SOFR_IORB'] = df['Spread_SOFR_IORB'].rolling(window=20, min_periods=10).mean()
 
     # YoY Comparisons (Shift 252 days)
     if 'RRP_Balance' in df.columns:
@@ -335,11 +338,11 @@ def calculate_metrics(df):
     if 'Fed_Total_Assets' in df.columns:
         df['Prev_3Year_Assets'] = df['Fed_Total_Assets'].shift(756)
         # Simple baseline: Average of last 3 years? Or just vs 3 years ago?
-        # Let's use 3-Year Moving Average as baseline
+        # Let's use 3-Year Moving Average as baseline (min_periods=10 for gaps)
         df['MA20_Assets_3Y_Avg'] = (
-            df['Fed_Total_Assets'].shift(252).rolling(20).mean() + 
-            df['Fed_Total_Assets'].shift(504).rolling(20).mean() + 
-            df['Fed_Total_Assets'].shift(756).rolling(20).mean()
+            df['Fed_Total_Assets'].shift(252).rolling(20, min_periods=10).mean() + 
+            df['Fed_Total_Assets'].shift(504).rolling(20, min_periods=10).mean() + 
+            df['Fed_Total_Assets'].shift(756).rolling(20, min_periods=10).mean()
         ) / 3
         
     # MTD Flows
@@ -364,7 +367,7 @@ def calculate_metrics(df):
     # Net Liquidity Analytics
     if 'Net_Liquidity' in df.columns:
         df['Net_Liq_Change'] = df['Net_Liquidity'].diff()
-        df['MA20_Net_Liq'] = df['Net_Liquidity'].rolling(window=20).mean()
+        df['MA20_Net_Liq'] = df['Net_Liquidity'].rolling(window=20, min_periods=10).mean()
         df['Prev_Year_Net_Liq'] = df['Net_Liquidity'].shift(252)
         df['YoY_Net_Liq_Change'] = df['Net_Liquidity'] - df['Prev_Year_Net_Liq']
 
@@ -538,9 +541,9 @@ def detect_spread_spikes(df, spread_col='Spread_SOFR_IORB', threshold_std=2.0, a
     if len(spread) < 20:
         return {}
     
-    # Calculate MA20 and StdDev
-    ma20 = spread.rolling(20).mean()
-    std20 = spread.rolling(20).std()
+    # Calculate MA20 and StdDev (min_periods=10 for weekend/holiday gaps)
+    ma20 = spread.rolling(20, min_periods=10).mean()
+    std20 = spread.rolling(20, min_periods=10).std()
     
     # Method 1: Threshold (MA + N*Std)
     threshold_upper = ma20 + threshold_std * std20
@@ -549,9 +552,9 @@ def detect_spread_spikes(df, spread_col='Spread_SOFR_IORB', threshold_std=2.0, a
     # Method 2: Absolute (> X bps)
     spikes_absolute = spread > (absolute_threshold_bps / 100)
     
-    # Method 3: Percentile (95th percentile rolling 3M)
+    # Method 3: Percentile (95th percentile rolling 3M, min_periods=40 for gaps)
     if len(spread) >= 63:
-        rolling_95th = spread.rolling(63).quantile(0.95)
+        rolling_95th = spread.rolling(63, min_periods=40).quantile(0.95)
         spikes_percentile = spread > rolling_95th
     else:
         spikes_percentile = pd.Series([False] * len(spread), index=spread.index)
@@ -924,8 +927,25 @@ def generate_report(df, series_metadata=None):
         return
 
     recent = df.tail(5)
-    last_row = df.iloc[-1]
-    last_date = df.index[-1].strftime('%Y-%m-%d')
+    
+    # Use last row with valid data (not all NaN) for reporting
+    # Check key columns to determine if data is valid
+    key_cols = ['RRP_Balance', 'SOFR_Rate', 'Net_Liquidity']
+    available_key_cols = [c for c in key_cols if c in df.columns]
+    
+    if available_key_cols:
+        # Find the last row where at least one key column is not NaN
+        valid_mask = df[available_key_cols].notna().any(axis=1)
+        if valid_mask.any():
+            last_valid_idx = df[valid_mask].index[-1]
+            last_row = df.loc[last_valid_idx]
+            last_date = last_valid_idx.strftime('%Y-%m-%d')
+        else:
+            last_row = df.iloc[-1]
+            last_date = df.index[-1].strftime('%Y-%m-%d')
+    else:
+        last_row = df.iloc[-1]
+        last_date = df.index[-1].strftime('%Y-%m-%d')
 
     # Calculate all temporal metrics
     mtd_metrics = calculate_mtd_metrics(df)
