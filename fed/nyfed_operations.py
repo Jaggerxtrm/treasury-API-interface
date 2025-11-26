@@ -19,13 +19,70 @@ from utils.data_loader import get_output_path
 from utils.report_generator import ReportGenerator, format_currency, format_bps
 
 
+def extract_collateral_breakdown(details: list) -> dict:
+    """
+    Extract collateral type breakdown from operation details.
+    
+    Returns dict with:
+        - Treasury_Accepted: Amount accepted for Treasury collateral
+        - Agency_Accepted: Amount accepted for Agency collateral
+        - MBS_Accepted: Amount accepted for Mortgage-Backed collateral
+    """
+    breakdown = {
+        'Treasury_Accepted': 0,
+        'Agency_Accepted': 0,
+        'MBS_Accepted': 0,
+        'Treasury_Rate': None,
+        'Agency_Rate': None,
+        'MBS_Rate': None,
+    }
+    
+    if not details or not isinstance(details, list):
+        return breakdown
+    
+    for item in details:
+        if not isinstance(item, dict):
+            continue
+        sec_type = item.get('securityType', '')
+        amt_accepted = item.get('amtAccepted', 0) or 0
+        rate = item.get('percentWeightedAverageRate')
+        
+        if 'Treasury' in sec_type:
+            breakdown['Treasury_Accepted'] = amt_accepted
+            breakdown['Treasury_Rate'] = rate
+        elif 'Agency' in sec_type:
+            breakdown['Agency_Accepted'] = amt_accepted
+            breakdown['Agency_Rate'] = rate
+        elif 'Mortgage' in sec_type or 'MBS' in sec_type:
+            breakdown['MBS_Accepted'] = amt_accepted
+            breakdown['MBS_Rate'] = rate
+    
+    return breakdown
+
+
 def calculate_repo_metrics(df_repo: pd.DataFrame) -> pd.DataFrame:
     """
     Calculate derived metrics for repo operations.
     Includes daily, weekly, monthly, and quarterly changes.
+    Also extracts collateral type breakdown (Treasury vs MBS vs Agency).
     """
     if df_repo.empty:
         return df_repo
+
+    # Extract collateral breakdown from 'details' column
+    if 'details' in df_repo.columns:
+        breakdowns = df_repo['details'].apply(extract_collateral_breakdown)
+        breakdown_df = pd.DataFrame(breakdowns.tolist(), index=df_repo.index)
+        
+        # Add collateral columns to main dataframe
+        for col in ['Treasury_Accepted', 'Agency_Accepted', 'MBS_Accepted']:
+            df_repo[col] = breakdown_df[col]
+        
+        # Calculate percentages
+        total = df_repo['totalAmtAccepted'].replace(0, np.nan)
+        df_repo['Treasury_Pct'] = (df_repo['Treasury_Accepted'] / total * 100).fillna(0)
+        df_repo['MBS_Pct'] = (df_repo['MBS_Accepted'] / total * 100).fillna(0)
+        df_repo['Agency_Pct'] = (df_repo['Agency_Accepted'] / total * 100).fillna(0)
 
     # Changes in repo usage at different time horizons
     if 'totalAmtAccepted' in df_repo.columns:
@@ -159,15 +216,48 @@ def generate_report(df_repo: pd.DataFrame, df_rrp: pd.DataFrame) -> None:
                 value_dict.get('format', '.2f')
             )
         
+        # Collateral Breakdown (Treasury vs MBS vs Agency)
+        if 'Treasury_Accepted' in last_repo:
+            print("\n--- COLLATERAL BREAKDOWN ---")
+            total = last_repo['totalAmtAccepted']
+            
+            treasury = last_repo.get('Treasury_Accepted', 0) or 0
+            mbs = last_repo.get('MBS_Accepted', 0) or 0
+            agency = last_repo.get('Agency_Accepted', 0) or 0
+            
+            treasury_pct = (treasury / total * 100) if total > 0 else 0
+            mbs_pct = (mbs / total * 100) if total > 0 else 0
+            agency_pct = (agency / total * 100) if total > 0 else 0
+            
+            print(f"Treasury:            ${treasury / 1e9:,.2f} B ({treasury_pct:5.1f}%)")
+            print(f"Mortgage-Backed:     ${mbs / 1e9:,.2f} B ({mbs_pct:5.1f}%)")
+            if agency > 0:
+                print(f"Agency:              ${agency / 1e9:,.2f} B ({agency_pct:5.1f}%)")
+            
+            # Visual bar for breakdown
+            if total > 0:
+                bar_width = 40
+                t_bar = int(treasury_pct / 100 * bar_width)
+                m_bar = int(mbs_pct / 100 * bar_width)
+                a_bar = bar_width - t_bar - m_bar
+                print(f"\n[{'T'*t_bar}{'M'*m_bar}{'.'*a_bar}]")
+                print(f" T=Treasury  M=MBS  .=Other")
+        
         # Recent trend - convert to billions for display
         print("\n--- RECENT REPO TREND (Last 20 Trading Days) ---")
-        cols = ['totalAmtAccepted', 'totalAmtSubmitted']
+        cols = ['totalAmtAccepted', 'Treasury_Accepted', 'MBS_Accepted']
         cols = [c for c in cols if c in df_repo.columns]
         if cols:
             repo_display = df_repo[cols].copy()
             for col in cols:
                 repo_display[col] = repo_display[col] / 1e9  # Convert to billions
-            repo_display.columns = ['Repo_Accepted_B', 'Submitted_B']
+            # Rename columns for clarity
+            new_names = {
+                'totalAmtAccepted': 'Total_B',
+                'Treasury_Accepted': 'Treasury_B',
+                'MBS_Accepted': 'MBS_B'
+            }
+            repo_display.columns = [new_names.get(c, c) for c in cols]
             report.print_table(repo_display, max_rows=20)
     
     if not df_rrp.empty:
