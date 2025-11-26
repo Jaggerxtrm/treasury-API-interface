@@ -86,7 +86,7 @@ python fed/nyfed_settlement_fails.py
 python fed/liquidity_composite_index.py
 ```
 
-**Or run the complete pipeline with a single command:**
+**Option A: Run individual scripts (detailed console output + CSV exports):**
 
 ```bash
 source venv/bin/activate && \
@@ -98,20 +98,42 @@ python fed/nyfed_settlement_fails.py && \
 python fed/liquidity_composite_index.py
 ```
 
+**Option B: Generate integrated Desk Report (8-section professional format):**
+
+```bash
+source venv/bin/activate && python generate_desk_report.py
+```
+
+**Recommended: Run both for comprehensive analysis:**
+
+```bash
+source venv/bin/activate && \
+python fiscal/fiscal_analysis.py && \
+python fed/fed_liquidity.py && \
+python fed/nyfed_operations.py && \
+python fed/nyfed_reference_rates.py && \
+python fed/nyfed_settlement_fails.py && \
+python fed/liquidity_composite_index.py && \
+python generate_desk_report.py
+```
+
 ### Output Files
 
 All analysis outputs are saved to the `outputs/` directory:
 
 ```
 outputs/
+├── desk_report_YYYY-MM-DD.md    # Integrated 8-section desk report
 ├── fiscal/
 │   └── fiscal_analysis_full.csv
-└── fed/
-    ├── fed_liquidity_full.csv
-    ├── nyfed_repo_ops.csv
-    ├── nyfed_rrp_ops.csv
-    ├── nyfed_reference_rates.csv
-    └── nyfed_settlement_fails.csv
+├── fed/
+│   ├── fed_liquidity_full.csv
+│   ├── nyfed_repo_ops.csv
+│   ├── nyfed_rrp_ops.csv
+│   ├── nyfed_reference_rates.csv
+│   └── nyfed_settlement_fails.csv
+└── composite/
+    └── liquidity_composite_index.csv
 
 liquidity_composite_index.csv (root directory)
 ```
