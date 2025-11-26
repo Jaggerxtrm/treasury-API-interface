@@ -6,6 +6,7 @@ Refactored to use shared utilities.
 """
 
 import pandas as pd
+import numpy as np
 import sys
 import os
 
@@ -21,18 +22,22 @@ from utils.report_generator import ReportGenerator, format_currency, format_bps
 def calculate_repo_metrics(df_repo: pd.DataFrame) -> pd.DataFrame:
     """
     Calculate derived metrics for repo operations.
+    Includes daily, weekly, monthly, and quarterly changes.
     """
     if df_repo.empty:
         return df_repo
 
-    # Daily change in repo usage
+    # Changes in repo usage at different time horizons
     if 'totalAmtAccepted' in df_repo.columns:
-        df_repo['repo_change'] = df_repo['totalAmtAccepted'].diff()
+        df_repo['repo_daily_change'] = df_repo['totalAmtAccepted'].diff(1)
+        df_repo['repo_weekly_change'] = df_repo['totalAmtAccepted'].diff(5)
+        df_repo['repo_monthly_change'] = df_repo['totalAmtAccepted'].diff(22)
+        df_repo['repo_quarterly_change'] = df_repo['totalAmtAccepted'].diff(65)
 
     # Moving averages (use LCI-compatible column names)
     if 'totalAmtAccepted' in df_repo.columns:
-        df_repo['MA5_Repo_Accepted'] = df_repo['totalAmtAccepted'].rolling(5).mean()
-        df_repo['MA20_Repo_Accepted'] = df_repo['totalAmtAccepted'].rolling(20).mean()
+        df_repo['MA5_Repo_Accepted'] = df_repo['totalAmtAccepted'].rolling(5, min_periods=3).mean()
+        df_repo['MA20_Repo_Accepted'] = df_repo['totalAmtAccepted'].rolling(20, min_periods=10).mean()
 
     # Calculate submission ratio (for LCI Plumbing component)
     # Ratio = totalAmtSubmitted / operationLimit
@@ -45,9 +50,40 @@ def calculate_repo_metrics(df_repo: pd.DataFrame) -> pd.DataFrame:
     return df_repo
 
 
+def calculate_rrp_metrics(df_rrp: pd.DataFrame) -> pd.DataFrame:
+    """
+    Calculate derived metrics for reverse repo operations.
+    Includes daily, weekly, monthly, and quarterly changes.
+    """
+    if df_rrp.empty:
+        return df_rrp
+
+    # Changes in RRP usage at different time horizons
+    if 'totalAmtAccepted' in df_rrp.columns:
+        df_rrp['rrp_daily_change'] = df_rrp['totalAmtAccepted'].diff(1)
+        df_rrp['rrp_weekly_change'] = df_rrp['totalAmtAccepted'].diff(5)
+        df_rrp['rrp_monthly_change'] = df_rrp['totalAmtAccepted'].diff(22)
+        df_rrp['rrp_quarterly_change'] = df_rrp['totalAmtAccepted'].diff(65)
+
+    # Moving averages
+    if 'totalAmtAccepted' in df_rrp.columns:
+        df_rrp['MA5_RRP'] = df_rrp['totalAmtAccepted'].rolling(5, min_periods=3).mean()
+        df_rrp['MA20_RRP'] = df_rrp['totalAmtAccepted'].rolling(20, min_periods=10).mean()
+
+    return df_rrp
+
+
+def format_value_safe(value, divisor=1e9, fmt='+,.2f'):
+    """Safely format a value, handling NaN."""
+    if pd.isna(value) or not np.isfinite(value):
+        return "N/A"
+    return f"{value / divisor:{fmt}}"
+
+
 def generate_report(df_repo: pd.DataFrame, df_rrp: pd.DataFrame) -> None:
     """
     Generate a consolidated report.
+    All values displayed in BILLIONS ($B) with proper formatting.
     """
     report = ReportGenerator("NY FED OPERATIONS REPORT", width=60)
     
@@ -63,19 +99,20 @@ def generate_report(df_repo: pd.DataFrame, df_rrp: pd.DataFrame) -> None:
         # Repo Operations Section
         report.print_subheader("REPO OPERATIONS (Liquidity Injection)")
         
+        # Convert all values to billions for display
         metrics = {}
         if 'totalAmtAccepted' in last_repo:
             metrics['Total Accepted'] = {
-                'value': last_repo['totalAmtAccepted'],
-                'unit': 'M',
-                'format': ',.0f'
+                'value': last_repo['totalAmtAccepted'] / 1e9,  # Convert to billions
+                'unit': 'B',
+                'format': ',.2f'
             }
         
         if 'totalAmtSubmitted' in last_repo:
             metrics['Total Submitted'] = {
-                'value': last_repo['totalAmtSubmitted'],
-                'unit': 'M',
-                'format': ',.0f'
+                'value': last_repo['totalAmtSubmitted'] / 1e9,  # Convert to billions
+                'unit': 'B',
+                'format': ',.2f'
             }
         
         if 'weightedAvgRate' in last_repo:
@@ -85,11 +122,33 @@ def generate_report(df_repo: pd.DataFrame, df_rrp: pd.DataFrame) -> None:
                 'format': '.2f'
             }
         
-        if 'repo_change' in last_repo:
+        # Time horizon changes (Daily, Weekly, Monthly, Quarterly)
+        if 'repo_daily_change' in last_repo and pd.notna(last_repo['repo_daily_change']):
             metrics['Daily Change'] = {
-                'value': last_repo['repo_change'],
-                'unit': 'M',
-                'format': '+,.0f'
+                'value': last_repo['repo_daily_change'] / 1e9,
+                'unit': 'B',
+                'format': '+,.2f'
+            }
+        
+        if 'repo_weekly_change' in last_repo and pd.notna(last_repo['repo_weekly_change']):
+            metrics['Weekly Change (5D)'] = {
+                'value': last_repo['repo_weekly_change'] / 1e9,
+                'unit': 'B',
+                'format': '+,.2f'
+            }
+        
+        if 'repo_monthly_change' in last_repo and pd.notna(last_repo['repo_monthly_change']):
+            metrics['Monthly Change (22D)'] = {
+                'value': last_repo['repo_monthly_change'] / 1e9,
+                'unit': 'B',
+                'format': '+,.2f'
+            }
+        
+        if 'repo_quarterly_change' in last_repo and pd.notna(last_repo['repo_quarterly_change']):
+            metrics['Quarterly Change (65D)'] = {
+                'value': last_repo['repo_quarterly_change'] / 1e9,
+                'unit': 'B',
+                'format': '+,.2f'
             }
         
         for label, value_dict in metrics.items():
@@ -100,15 +159,15 @@ def generate_report(df_repo: pd.DataFrame, df_rrp: pd.DataFrame) -> None:
                 value_dict.get('format', '.2f')
             )
         
-        # Recent trend - convert to millions for display
+        # Recent trend - convert to billions for display
         print("\n--- RECENT REPO TREND (Last 20 Trading Days) ---")
         cols = ['totalAmtAccepted', 'totalAmtSubmitted']
         cols = [c for c in cols if c in df_repo.columns]
         if cols:
             repo_display = df_repo[cols].copy()
             for col in cols:
-                repo_display[col] = repo_display[col] / 1e6  # Convert to millions
-            repo_display.columns = ['Repo_Accepted_M', 'Submitted_M']
+                repo_display[col] = repo_display[col] / 1e9  # Convert to billions
+            repo_display.columns = ['Repo_Accepted_B', 'Submitted_B']
             report.print_table(repo_display, max_rows=20)
     
     if not df_rrp.empty:
@@ -117,18 +176,18 @@ def generate_report(df_repo: pd.DataFrame, df_rrp: pd.DataFrame) -> None:
         # RRP Operations Section
         report.print_subheader("REVERSE REPO OPERATIONS (Liquidity Drain)")
         
-        # Note: NY Fed values are in dollars, convert to billions for display
+        # All values in billions
         metrics = {}
         if 'totalAmtAccepted' in last_rrp:
             metrics['RRP Balance'] = {
-                'value': last_rrp['totalAmtAccepted'] / 1e9,  # Convert to billions
+                'value': last_rrp['totalAmtAccepted'] / 1e9,
                 'unit': 'B',
                 'format': ',.2f'
             }
         
         if 'totalAmtSubmitted' in last_rrp:
             metrics['Total Submitted'] = {
-                'value': last_rrp['totalAmtSubmitted'] / 1e9,  # Convert to billions
+                'value': last_rrp['totalAmtSubmitted'] / 1e9,
                 'unit': 'B',
                 'format': ',.2f'
             }
@@ -138,6 +197,35 @@ def generate_report(df_repo: pd.DataFrame, df_rrp: pd.DataFrame) -> None:
                 'value': last_rrp['weightedAvgRate'],
                 'unit': '%',
                 'format': '.2f'
+            }
+        
+        # Time horizon changes for RRP
+        if 'rrp_daily_change' in last_rrp and pd.notna(last_rrp['rrp_daily_change']):
+            metrics['Daily Change'] = {
+                'value': last_rrp['rrp_daily_change'] / 1e9,
+                'unit': 'B',
+                'format': '+,.2f'
+            }
+        
+        if 'rrp_weekly_change' in last_rrp and pd.notna(last_rrp['rrp_weekly_change']):
+            metrics['Weekly Change (5D)'] = {
+                'value': last_rrp['rrp_weekly_change'] / 1e9,
+                'unit': 'B',
+                'format': '+,.2f'
+            }
+        
+        if 'rrp_monthly_change' in last_rrp and pd.notna(last_rrp['rrp_monthly_change']):
+            metrics['Monthly Change (22D)'] = {
+                'value': last_rrp['rrp_monthly_change'] / 1e9,
+                'unit': 'B',
+                'format': '+,.2f'
+            }
+        
+        if 'rrp_quarterly_change' in last_rrp and pd.notna(last_rrp['rrp_quarterly_change']):
+            metrics['Quarterly Change (65D)'] = {
+                'value': last_rrp['rrp_quarterly_change'] / 1e9,
+                'unit': 'B',
+                'format': '+,.2f'
             }
         
         for label, value_dict in metrics.items():
@@ -216,6 +304,7 @@ def main():
         agg_dict.update({col: 'first' for col in non_numeric_cols})
 
         df_rrp = df_rrp.groupby(df_rrp.index).agg(agg_dict)
+        df_rrp = calculate_rrp_metrics(df_rrp)  # NEW: Calculate RRP metrics
     
     # Generate report
     generate_report(df_repo, df_rrp)

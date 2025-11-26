@@ -325,9 +325,14 @@ def calculate_metrics(df):
     if 'UST_30Y' in df.columns and 'UST_5Y' in df.columns:
         df['Curve_5s30s'] = df['UST_30Y'] - df['UST_5Y']
 
-    # 3. RRP Change
+    # 3. RRP Change (multiple time horizons)
+    # Use ffill() to handle weekend/holiday gaps before computing diffs
     if 'RRP_Balance' in df.columns:
-        df['RRP_Change'] = df['RRP_Balance'].diff()
+        rrp_filled = df['RRP_Balance'].ffill()  # Fill gaps with last valid value
+        df['RRP_Change'] = df['RRP_Balance'].diff()  # Daily (original, may have NaN)
+        df['RRP_Weekly_Change'] = rrp_filled.diff(5)  # Weekly (5 trading days)
+        df['RRP_Monthly_Change'] = rrp_filled.diff(22)  # Monthly (~22 trading days)
+        df['RRP_Quarterly_Change'] = rrp_filled.diff(65)  # Quarterly (~65 trading days)
         
     # 4. QT Pace (Weekly Change in Assets)
     # Resample to weekly to get a smoother trend or just take 5-day diff
@@ -410,10 +415,21 @@ def calculate_metrics(df):
     if 'RRP_Change' in df.columns:
         df['MTD_RRP_Flow'] = df.groupby('YearMonth')['RRP_Change'].cumsum()
 
-    # Net Liquidity Analytics
+    # Net Liquidity Analytics (multiple time horizons)
+    # Use ffill() to handle weekend/holiday gaps before computing diffs
     if 'Net_Liquidity' in df.columns:
-        df['Net_Liq_Change'] = df['Net_Liquidity'].diff()
+        net_liq_filled = df['Net_Liquidity'].ffill()  # Fill gaps with last valid value
+        # Daily, Weekly, Monthly, Quarterly changes
+        df['Net_Liq_Change'] = df['Net_Liquidity'].diff()  # Daily (original, may have NaN)
+        df['Net_Liq_Weekly_Change'] = net_liq_filled.diff(5)  # Weekly (5 trading days)
+        df['Net_Liq_Monthly_Change'] = net_liq_filled.diff(22)  # Monthly (~22 trading days)
+        df['Net_Liq_Quarterly_Change'] = net_liq_filled.diff(65)  # Quarterly (~65 trading days)
+        
+        # Moving averages
         df['MA20_Net_Liq'] = df['Net_Liquidity'].rolling(window=20, min_periods=10).mean()
+        df['MA5_Net_Liq'] = df['Net_Liquidity'].rolling(window=5, min_periods=2).mean()
+        
+        # YoY
         df['Prev_Year_Net_Liq'] = df['Net_Liquidity'].shift(252)
         df['YoY_Net_Liq_Change'] = df['Net_Liquidity'] - df['Prev_Year_Net_Liq']
 
@@ -1304,18 +1320,30 @@ def generate_report(df, series_metadata=None):
     print("\n--- NET LIQUIDITY (Fed Assets - RRP - TGA) ---")
     if 'Net_Liquidity' in df.columns:
         print(f"Net Liquidity:         ${last_row['Net_Liquidity']:,.0f} M")
-        if 'Net_Liq_Change' in last_row:
-            print(f"Daily Change:          ${last_row['Net_Liq_Change']:,.0f} M")
-        if 'MA20_Net_Liq' in last_row:
+        if 'Net_Liq_Change' in last_row and pd.notna(last_row['Net_Liq_Change']):
+            print(f"Daily Change:          ${last_row['Net_Liq_Change']:+,.0f} M")
+        if 'Net_Liq_Weekly_Change' in last_row and pd.notna(last_row['Net_Liq_Weekly_Change']):
+            print(f"Weekly Change (5D):    ${last_row['Net_Liq_Weekly_Change']:+,.0f} M")
+        if 'Net_Liq_Monthly_Change' in last_row and pd.notna(last_row['Net_Liq_Monthly_Change']):
+            print(f"Monthly Change (22D):  ${last_row['Net_Liq_Monthly_Change']:+,.0f} M")
+        if 'Net_Liq_Quarterly_Change' in last_row and pd.notna(last_row['Net_Liq_Quarterly_Change']):
+            print(f"Quarterly Change (65D):${last_row['Net_Liq_Quarterly_Change']:+,.0f} M")
+        if 'MA20_Net_Liq' in last_row and pd.notna(last_row['MA20_Net_Liq']):
             print(f"MA20:                  ${last_row['MA20_Net_Liq']:,.0f} M")
 
     print("\n--- LIQUIDITY DRAINS (RRP) ---")
     if 'RRP_Balance' in df.columns:
-        print(f"RRP Balance:       ${last_row['RRP_Balance']:,.0f} B")
-        if 'RRP_Change' in last_row:
-            print(f"Daily Change:      ${last_row['RRP_Change']:,.0f} B")
-        if 'MA20_RRP' in last_row:
-            print(f"MA20 Balance:      ${last_row['MA20_RRP']:,.0f} B")
+        print(f"RRP Balance:           ${last_row['RRP_Balance']:,.0f} B")
+        if 'RRP_Change' in last_row and pd.notna(last_row['RRP_Change']):
+            print(f"Daily Change:          ${last_row['RRP_Change']:+,.0f} B")
+        if 'RRP_Weekly_Change' in last_row and pd.notna(last_row['RRP_Weekly_Change']):
+            print(f"Weekly Change (5D):    ${last_row['RRP_Weekly_Change']:+,.0f} B")
+        if 'RRP_Monthly_Change' in last_row and pd.notna(last_row['RRP_Monthly_Change']):
+            print(f"Monthly Change (22D):  ${last_row['RRP_Monthly_Change']:+,.0f} B")
+        if 'RRP_Quarterly_Change' in last_row and pd.notna(last_row['RRP_Quarterly_Change']):
+            print(f"Quarterly Change (65D):${last_row['RRP_Quarterly_Change']:+,.0f} B")
+        if 'MA20_RRP' in last_row and pd.notna(last_row['MA20_RRP']):
+            print(f"MA20 Balance:          ${last_row['MA20_RRP']:,.0f} B")
 
     print("\n--- KEY RATES & SPREADS ---")
     if 'IORB_Rate' in df.columns:
