@@ -5,6 +5,7 @@ Unified API clients for FRED and NY Fed Markets API.
 
 import requests
 import pandas as pd
+import numpy as np
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Any, List
 import sys
@@ -341,11 +342,17 @@ class NYFedClient:
                             # Parse date
                             df_series["date"] = pd.to_datetime(df_series["asofdate"])
 
-                            # Convert value column (handle "*" as NaN)
+                            # Convert value column (handle "*" as suppressed data)
+                            # Standard approach: convert to numeric, errors="coerce" turns "*" into NaN
                             df_series["value"] = pd.to_numeric(
                                 df_series["value"],
                                 errors="coerce"
                             )
+                            
+                            # Verify no suppressed data remains
+                            if (df_series["value"] == "*").any():
+                                print(f"Warning: Found suppressed data in {keyid}, converting to NaN")
+                                df_series["value"] = df_series["value"].replace("*", np.nan)
 
                             # Set index and extract series
                             df_series.set_index("date", inplace=True)

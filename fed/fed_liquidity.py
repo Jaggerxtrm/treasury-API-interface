@@ -108,10 +108,37 @@ def fetch_all_data():
         df = df.join(tga_series, how='outer')
         series_metadata['TGA'] = tga_series.index[-1]
         print("Merging data...")
+        print(f"TGA data successfully integrated: {len(tga_series)} records")
+    else:
+        print("⚠️  TGA data not available - proceeding without TGA (Net Liquidity will be partial)")
+        # Add placeholder TGA column with NaN to maintain structure
+        df['TGA_Balance'] = np.nan
     
-    # Forward fill ALL data to propagate values correctly
-    # This handles both weekly data (Fed Balance Sheet) and TGA alignment
-    df = df.ffill()
+    # Forward fill ONLY weekly data (Fed Balance Sheet) to preserve daily data integrity
+    # Weekly series from FRED (update Wednesdays, should carry forward)
+    weekly_series = ['WALCL', 'WSHOMCB', 'TREAST', 'WSHOBL', 'WSHONOT', 'WSHOBND', 'SWPT']
+    
+    # Get column names for weekly series from our mapping
+    weekly_columns = []
+    for series_id in weekly_series:
+        if series_id in SERIES_MAP:
+            col_name = SERIES_MAP[series_id]
+            if col_name in df.columns:
+                weekly_columns.append(col_name)
+    
+    # Apply forward fill only to weekly series
+    if weekly_columns:
+        print(f"Applying forward fill to {len(weekly_columns)} weekly series: {weekly_columns}")
+        df[weekly_columns] = df[weekly_columns].ffill()
+    else:
+        print("No weekly series found for forward fill")
+    
+    # For TGA data, apply minimal forward fill (max 3 days) to avoid weekend gaps
+    if 'TGA_Balance' in df.columns:
+        print("Applying limited forward fill (3 days) to TGA data")
+        df['TGA_Balance'] = df['TGA_Balance'].ffill(limit=3)
+    
+    print("✓ Selective forward fill applied - preserving daily data integrity")
     
     # Ensure START_DATE is datetime for comparison and filter
     start_dt = pd.to_datetime(START_DATE)
@@ -216,15 +243,25 @@ def calculate_metrics(df):
 
     # Calculate Net Liquidity
     if all(col in df.columns for col in ['Fed_Total_Assets', 'RRP_Balance_M', 'TGA_Balance']):
-        df['Net_Liquidity'] = df['Fed_Total_Assets'] - df['RRP_Balance_M'] - df['TGA_Balance']
-        print("Net Liquidity calculated: Fed Assets - RRP - TGA")
+        # Check if TGA data has actual values (not all NaN)
+        if df['TGA_Balance'].notna().any():
+            df['Net_Liquidity'] = df['Fed_Total_Assets'] - df['RRP_Balance_M'] - df['TGA_Balance']
+            print("✓ Net Liquidity calculated: Fed Assets - RRP - TGA")
+        else:
+            # Fallback without TGA (calculate but warn)
+            df['Net_Liquidity_No_TGA'] = df['Fed_Total_Assets'] - df['RRP_Balance_M']
+            # Use this as Net_Liquidity but mark as degraded
+            df['Net_Liquidity'] = df['Net_Liquidity_No_TGA']
+            print("⚠️  Net Liquidity calculated without TGA (degraded accuracy)")
     elif 'Fed_Total_Assets' in df.columns and 'RRP_Balance_M' in df.columns:
-        # Fallback without TGA
+        # Fallback without TGA column
         df['Net_Liquidity_No_TGA'] = df['Fed_Total_Assets'] - df['RRP_Balance_M']
-        print("Net Liquidity calculated without TGA (TGA data not available)")
+        df['Net_Liquidity'] = df['Net_Liquidity_No_TGA']
+        print("⚠️  Net Liquidity calculated without TGA (TGA column missing)")
+    else:
+        print("❌ Cannot calculate Net Liquidity - missing required columns")
         
     # 2. Spreads (Stress Indicators)
-    # SOFR - IORB (Collateral Scarcity)
     if 'SOFR_Rate' in df.columns and 'IORB_Rate' in df.columns:
         df['Spread_SOFR_IORB'] = (df['SOFR_Rate'] - df['IORB_Rate']) * 100 # bps
         

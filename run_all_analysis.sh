@@ -45,7 +45,7 @@ fi
 
 # 3. NY Fed Operations (repo/RRP data)
 echo ""
-echo -e "${GREEN}[3/5] Running NY Fed Operations...${NC}"
+echo -e "${GREEN}[3/6] Running NY Fed Operations...${NC}"
 echo "----------------------------------------------"
 cd fed
 python nyfed_operations.py
@@ -58,7 +58,7 @@ cd ..
 
 # 4. NY Fed Reference Rates (SOFR, EFFR, etc.)
 echo ""
-echo -e "${GREEN}[4/5] Running NY Fed Reference Rates...${NC}"
+echo -e "${GREEN}[4/6] Running NY Fed Reference Rates...${NC}"
 echo "----------------------------------------------"
 cd fed
 python nyfed_reference_rates.py
@@ -69,9 +69,22 @@ else
 fi
 cd ..
 
-# 5. Liquidity Composite Index (combined analysis)
+# 5. OFR Repo Market Analysis
 echo ""
-echo -e "${GREEN}[5/5] Running Liquidity Composite Index...${NC}"
+echo -e "${GREEN}[5/6] Running OFR Repo Analysis...${NC}"
+echo "----------------------------------------------"
+cd fed
+python ofr_analysis.py
+if [ $? -eq 0 ]; then
+    echo -e "${GREEN}✓ OFR repo analysis complete${NC}"
+else
+    echo -e "${YELLOW}⚠ OFR repo analysis had issues${NC}"
+fi
+cd ..
+
+# 6. Liquidity Composite Index (combined analysis)
+echo ""
+echo -e "${GREEN}[6/6] Running Liquidity Composite Index...${NC}"
 echo "----------------------------------------------"
 cd fed
 python liquidity_composite_index.py
