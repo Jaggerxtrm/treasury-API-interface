@@ -119,10 +119,82 @@ def fetch_all_data():
 
     return df, series_metadata
 
+def calculate_effective_policy_stance(df):
+    """
+    Distingue tra QT nominale e QE effettivo.
+    
+    QT Nominale: Riduzione Fed_Total_Assets
+    QE Effettivo: Reinvestimento MBS -> T-Bills + REPO attivo
+    """
+    
+    # 1. Calcola il runoff MBS
+    if 'Fed_MBS_Holdings' in df.columns:
+        df['MBS_Runoff_Weekly'] = -df['Fed_MBS_Holdings'].diff(5)  # Negativo = runoff
+    
+    # 2. Calcola l'acquisto di T-Bills
+    if 'Fed_Bill_Holdings' in df.columns:
+        df['Bill_Purchases_Weekly'] = df['Fed_Bill_Holdings'].diff(5)
+    
+    # 3. Calcola il reinvestimento (MBS runoff -> T-Bills)
+    if 'MBS_Runoff_Weekly' in df.columns and 'Bill_Purchases_Weekly' in df.columns:
+        # Se i T-Bills aumentano mentre MBS diminuiscono = reinvestimento
+        # Usiamo numpy where per gestire le condizioni vettoriali
+        # Logica: Reinvestimento = min(abs(MBS_Runoff), Bill_Purchases) se entrambi attivi nella direzione giusta
+        
+        # Condizione: MBS scendono (runoff > 0 perché abbiamo invertito il segno sopra) E Bills salgono
+        # Nota: MBS_Runoff_Weekly è calcolato come -diff, quindi se MBS scendono, diff è neg, -diff è pos.
+        # Quindi cerchiamo MBS_Runoff_Weekly > 0 e Bill_Purchases_Weekly > 0
+        
+        df['MBS_to_Bills_Reinvestment'] = np.where(
+            (df['MBS_Runoff_Weekly'] > 0) & (df['Bill_Purchases_Weekly'] > 0),
+            np.minimum(df['MBS_Runoff_Weekly'], df['Bill_Purchases_Weekly']),
+            0
+        )
+    
+    # 4. Calcola la stance effettiva
+    # QT Puro = riduzione totale assets senza reinvestimento
+    # QE Effettivo = reinvestimento + REPO attivo
+    # Repo_Ops_Balance include SRF (passivo) ma se espandiamo a OMO includerà anche attivo.
+    # Per ora assumiamo che Repo_Ops_Balance rifletta l'iniezione repo totale.
+    
+    if 'Fed_Total_Assets' in df.columns:
+        df['QT_Pace_Nominal'] = -df['Fed_Total_Assets'].diff(5)  # Negativo = QT (assets scendono)
+        # Nota: se assets scendono, diff è neg, -diff è pos (pace of QT). 
+        # Manteniamo la convenzione: QT Pace positivo = contrazione.
+        # O meglio: usiamo convenzione "Flow": positivo = iniezione, negativo = drenaggio.
+        
+        # Ricalcoliamo con convenzione Flow:
+        df['Flow_Nominal_Assets'] = df['Fed_Total_Assets'].diff(5) # Pos = QE, Neg = QT
+        
+    if 'MBS_to_Bills_Reinvestment' in df.columns and 'Repo_Ops_Balance' in df.columns:
+        # QE Effettivo = Reinvestimento (che è liquidity neutral per balance sheet ma bullish per risk) + Repo Injection
+        # Nota: Reinvestimento non aggiunge net liquidity ma sposta duration risk.
+        # Tuttavia, l'utente lo vede come "QE".
+        df['QE_Effective'] = df['MBS_to_Bills_Reinvestment'] + df['Repo_Ops_Balance']
+        
+        # Net Policy Stance:
+        # Se Flow_Nominal_Assets è -95B (QT) ma QE_Effective è +20B (Reinvest + Repo)
+        # La stance netta è complessa. 
+        # L'utente vuole vedere: "Effective Policy Stance"
+        # Definiamo Net_Policy_Stance come la somma dei flussi espansivi meno quelli contrattivi?
+        # O semplicemente Flow_Nominal_Assets + "Boost" da Reinvestimento?
+        # Il reinvestimento è uno swap, non net new money. Ma supporta il mercato.
+        # Consideriamolo come un fattore additivo alla "Liquidity Quality".
+        
+        # Per ora seguiamo la logica proposta:
+        if 'Flow_Nominal_Assets' in df.columns:
+             # Net Policy Stance = Flow Totale + Reinvestimento (che conta come "shadow QE")
+             df['Net_Policy_Stance'] = df['Flow_Nominal_Assets'] + df['MBS_to_Bills_Reinvestment']
+    
+    return df
+
 def calculate_metrics(df):
     """
     Calculates derived metrics: Net Liquidity, Spreads, Changes.
     """
+    # 0. Calculate Effective Policy Stance (New Phase 1)
+    df = calculate_effective_policy_stance(df)
+
     # 1. Net Liquidity Calculation
     # Net Liq = Fed Assets - RRP - TGA
     # Units: All in Millions

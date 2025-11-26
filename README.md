@@ -6,8 +6,6 @@ A comprehensive system for monitoring U.S. dollar liquidity conditions through r
 
 The Treasury API Interface tracks the three fundamental pillars of market liquidity:
 
-1. **Fiscal Liquidity** (40% weight) - Government spending and taxation flows
-2. **Monetary Liquidity** (35% weight) - Federal Reserve balance sheet operations
 3. **Market Plumbing** (25% weight) - Repo market stress and settlement fails
 
 By integrating these components, the system provides a holistic view of liquidity conditions that no single indicator can capture.

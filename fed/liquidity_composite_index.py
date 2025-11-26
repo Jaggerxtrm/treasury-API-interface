@@ -54,11 +54,22 @@ REPO_SEARCH_PATHS = [
     "fed/outputs/fed/nyfed_repo_ops.csv",
 ]
 
+OFR_SEARCH_PATHS = [
+    "outputs/fed/ofr_repo_analysis.csv",
+    "../outputs/fed/ofr_repo_analysis.csv",
+    "fed/outputs/fed/ofr_repo_analysis.csv",
+]
+
 FAILS_SEARCH_PATHS = [
     "outputs/fed/nyfed_settlement_fails.csv",
     "../outputs/fed/nyfed_settlement_fails.csv",
     "fed/outputs/fed/nyfed_settlement_fails.csv",
 ]
+
+# ... (Weights are imported from config.py, assuming config.py is imported or defined here. 
+# Wait, config.py is NOT imported in the original file! It defines WEIGHTS locally!
+# I need to update the local WEIGHTS definitions to match config.py or import them.
+# The original file has local dictionaries. I should update them to match the new structure.)
 
 # Component Weights (configurable)
 # Total should equal 1.0
@@ -76,19 +87,22 @@ FISCAL_WEIGHTS = {
 }
 
 MONETARY_WEIGHTS = {
-    "net_liquidity": 0.60,   # Primary driver
-    "rrp_change": 0.25,      # RRP drain/release
-    "sofr_stress": 0.15      # Funding stress indicator
+    "net_liquidity": 0.30,          # Increased importance
+    "policy_stance": 0.25,          # NEW: Effective Policy Stance (QE vs QT)
+    "rrp_change": 0.20,             # Reduced
+    "repo_operations": 0.15,        # NEW: Active Repo Operations
+    "sofr_stress": 0.10,            # Reduced
 }
 
 PLUMBING_WEIGHTS = {
-    "repo_stress": 0.60,     # Repo submission pressure
-    "fails": 0.40            # Settlement fails stress
+    "repo_stress": 0.40,            # NY Fed Repo Submission Ratio
+    "fails_stress": 0.30,           # Settlement Fails
+    "ofr_stress": 0.30              # NEW: OFR Repo Market Stress
 }
 
 def load_data():
     """
-    Loads data from all three modules.
+    Loads data from all modules.
     """
     print("Loading data from CSV files...")
 
@@ -99,6 +113,7 @@ def load_data():
     fed_path = find_file("fed_liquidity_full.csv", FED_SEARCH_PATHS)
     repo_path = find_file("nyfed_repo_ops.csv", REPO_SEARCH_PATHS)
     fails_path = find_file("nyfed_settlement_fails.csv", FAILS_SEARCH_PATHS)
+    ofr_path = find_file("ofr_repo_analysis.csv", OFR_SEARCH_PATHS)
 
     try:
         if fiscal_path:
@@ -147,6 +162,18 @@ def load_data():
     except Exception as e:
         print(f"Could not load fails data: {e}")
         data['fails'] = pd.DataFrame()
+        
+    try:
+        if ofr_path:
+            df_ofr = pd.read_csv(ofr_path, index_col=0, parse_dates=True)
+            data['ofr'] = df_ofr
+            print(f"OFR repo analysis data loaded: {len(df_ofr)} records")
+        else:
+            print("OFR repo analysis data file not found")
+            data['ofr'] = pd.DataFrame()
+    except Exception as e:
+        print(f"Could not load OFR data: {e}")
+        data['ofr'] = pd.DataFrame()
 
     return data
 
@@ -235,13 +262,33 @@ def calculate_monetary_component(df_fed):
         net_liq_norm = normalize_series(df_fed['Net_Liquidity'], method='zscore')
         monetary_index += net_liq_norm * MONETARY_WEIGHTS['net_liquidity']
 
-    # 2. RRP Change (decline = liquidity release)
+    # 2. Policy Stance (Effective QE/QT)
+    if 'Net_Policy_Stance' in df_fed.columns:
+        # Positive = QE (Injection)
+        policy_norm = normalize_series(df_fed['Net_Policy_Stance'], method='zscore')
+        monetary_index += policy_norm * MONETARY_WEIGHTS['policy_stance']
+    elif 'QT_Pace_Assets_Weekly' in df_fed.columns:
+        # Fallback: QT Pace is negative for liquidity (if positive number represents contraction)
+        # Usually QT Pace is negative number in my script?
+        # Let's check fed_liquidity.py: df['QT_Pace_Assets_Weekly'] = df['Fed_Total_Assets'].diff(5)
+        # So if assets drop, diff is negative.
+        # So negative value = contraction.
+        # So we can just normalize it directly.
+        qt_norm = normalize_series(df_fed['QT_Pace_Assets_Weekly'], method='zscore')
+        monetary_index += qt_norm * MONETARY_WEIGHTS['policy_stance']
+
+    # 3. RRP Change (decline = liquidity release)
     if 'RRP_Change' in df_fed.columns:
         rrp_release = -df_fed['RRP_Change']  # Decline in RRP = positive
         rrp_norm = normalize_series(rrp_release, method='zscore')
         monetary_index += rrp_norm * MONETARY_WEIGHTS['rrp_change']
+        
+    # 4. Repo Operations (Active Injection)
+    if 'Repo_Ops_Balance' in df_fed.columns:
+        repo_ops_norm = normalize_series(df_fed['Repo_Ops_Balance'], method='zscore')
+        monetary_index += repo_ops_norm * MONETARY_WEIGHTS['repo_operations']
 
-    # 3. SOFR Stress (wider spread = tighter, negative for liquidity)
+    # 5. SOFR Stress (wider spread = tighter, negative for liquidity)
     if 'Spread_SOFR_IORB' in df_fed.columns:
         sofr_stress = -df_fed['Spread_SOFR_IORB']  # Higher spread = stress
         sofr_norm = normalize_series(sofr_stress, method='zscore')
@@ -249,7 +296,7 @@ def calculate_monetary_component(df_fed):
 
     return monetary_index
 
-def calculate_plumbing_component(df_repo, df_fails):
+def calculate_plumbing_component(df_repo, df_fails, df_ofr):
     """
     Calculates Market Plumbing sub-index.
     Higher = Less stress in market plumbing.
@@ -260,20 +307,24 @@ def calculate_plumbing_component(df_repo, df_fails):
 
     if not df_fails.empty and df_fails.index.duplicated().any():
         df_fails = df_fails.groupby(df_fails.index).mean(numeric_only=True)
+        
+    if not df_ofr.empty and df_ofr.index.duplicated().any():
+        df_ofr = df_ofr.groupby(df_ofr.index).mean(numeric_only=True)
 
     plumbing_index = pd.Series(dtype=float)
 
     # Need a common index
-    if not df_repo.empty and not df_fails.empty:
-        # Merge on date
-        combined = pd.concat([df_repo, df_fails], axis=1, join='outer').sort_index()
-        plumbing_index = pd.Series(0.0, index=combined.index)
-    elif not df_repo.empty:
-        plumbing_index = pd.Series(0.0, index=df_repo.index)
-    elif not df_fails.empty:
-        plumbing_index = pd.Series(0.0, index=df_fails.index)
-    else:
+    # Merge all available
+    dfs_to_merge = []
+    if not df_repo.empty: dfs_to_merge.append(df_repo)
+    if not df_fails.empty: dfs_to_merge.append(df_fails)
+    if not df_ofr.empty: dfs_to_merge.append(df_ofr)
+    
+    if not dfs_to_merge:
         return plumbing_index
+        
+    combined = pd.concat(dfs_to_merge, axis=1, join='outer').sort_index()
+    plumbing_index = pd.Series(0.0, index=combined.index)
 
     # 1. Repo Stress (high submission ratio = stress, invert)
     if not df_repo.empty and 'submission_ratio' in df_repo.columns:
@@ -286,7 +337,13 @@ def calculate_plumbing_component(df_repo, df_fails):
     if not df_fails.empty and 'totalFails' in df_fails.columns:
         fails_stress = -df_fails['totalFails'].reindex(plumbing_index.index)
         fails_norm = normalize_series(fails_stress, method='zscore')
-        plumbing_index += fails_norm * PLUMBING_WEIGHTS['fails']
+        plumbing_index += fails_norm * PLUMBING_WEIGHTS['fails_stress']
+        
+    # 3. OFR Repo Stress (high index = stress, invert)
+    if not df_ofr.empty and 'Repo_Stress_Index' in df_ofr.columns:
+        ofr_stress = -df_ofr['Repo_Stress_Index'].reindex(plumbing_index.index)
+        ofr_norm = normalize_series(ofr_stress, method='zscore')
+        plumbing_index += ofr_norm * PLUMBING_WEIGHTS['ofr_stress']
 
     return plumbing_index
 
@@ -299,7 +356,7 @@ def calculate_composite_index(data):
     # Calculate sub-indices
     fiscal_index = calculate_fiscal_component(data['fiscal'])
     monetary_index = calculate_monetary_component(data['fed'])
-    plumbing_index = calculate_plumbing_component(data['repo'], data['fails'])
+    plumbing_index = calculate_plumbing_component(data['repo'], data['fails'], data['ofr'])
 
     # Merge all on common dates
     indices = pd.concat([

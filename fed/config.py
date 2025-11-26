@@ -35,6 +35,9 @@ FRED_SERIES_MAP = {
     "WSHOMCB": "Fed_MBS_Holdings",   # MBS Holdings
     "TREAST": "Fed_Treasury_Holdings", # Treasury Holdings
     "WSHOBL": "Fed_Bill_Holdings",   # T-Bills Held Outright
+    "WSHONOT": "Fed_Notes_Holdings", # Treasury Notes (2-10Y)
+    "WSHOBND": "Fed_Bonds_Holdings", # Treasury Bonds (20-30Y)
+
     
     # Rates & Spreads
     "IORB": "IORB_Rate",             # Interest on Reserve Balances
@@ -83,6 +86,8 @@ SERIES_FREQUENCIES = {
     "WSHOMCB": "weekly",
     "TREAST": "weekly",
     "WSHOBL": "weekly",
+    "WSHONOT": "weekly",
+    "WSHOBND": "weekly",
     "SWPT": "weekly",
 }
 
@@ -160,13 +165,15 @@ FISCAL_WEIGHTS = {
 }
 
 MONETARY_WEIGHTS = {
-    "balance_sheet": 0.40,
-    "rrp_change": 0.25,
-    "sofr_stress": 0.15,
-    "net_liquidity": 0.20
+    "net_liquidity": 0.30,          # Increased importance
+    "policy_stance": 0.25,          # NEW: Effective Policy Stance (QE vs QT)
+    "rrp_change": 0.20,             # Reduced
+    "repo_operations": 0.15,        # NEW: Active Repo Operations
+    "sofr_stress": 0.10,            # Reduced
 }
 
 PLUMBING_WEIGHTS = {
-    "repo_stress": 0.60,
-    "fails": 0.40
+    "repo_stress": 0.40,            # NY Fed Repo Submission Ratio
+    "fails_stress": 0.30,           # Settlement Fails
+    "ofr_stress": 0.30              # NEW: OFR Repo Market Stress
 }

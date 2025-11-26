@@ -4,24 +4,6 @@
 
 At the heart of the modern financial system lies the Federal Reserve's balance sheet. It is the ultimate source of "high-powered" money, or liquidity, that underpins all commercial and financial activity. Understanding its dynamics is not just an academic exercise; it is crucial for any market practitioner navigating interest rates, credit spreads, and asset prices.
 
-The primary way the Fed injects or removes liquidity is through its monetary policy regimes, most notably Quantitative Easing (QE) and Quantitative Tightening (QT). During a QE regime, the Fed expands its balance sheet by purchasing assets (primarily Treasury securities and Mortgage-Backed Securities) from the open market. This process swaps interest-bearing assets held by the private sector for fresh, liquid cash in the form of central bank reserves. This new liquidity floods the banking system, encouraging banks to lend more freely, lowering short-term interest rates, and generally pushing investors into riskier assets in search of yield.
-
-Conversely, during a QT regime, the Fed shrinks its balance sheet. It typically does this passively by letting its existing assets mature without reinvesting the proceeds. When a Treasury bond held by the Fed matures, the Treasury pays the Fed, and that cash is effectively extinguished, draining reserves from the banking system. This reduction in liquidity leads to tighter financial conditions, often resulting in higher borrowing costs and a more cautious risk appetite across markets. The transmission mechanism is direct: fewer reserves in the system mean banks have less capacity to lend, and the cost of overnight funding rises, with effects rippling out across the entire yield curve.
-
-## 2. The Net Liquidity Framework
-
-While the total size of the Fed's balance sheet is a powerful top-level indicator, it doesn't tell the whole story. Market practitioners need to know how much liquidity is *actually available* to the private sector to fund activity. To get this more precise measure, we use the Net Liquidity Framework.
-
-The core formula is:
-**Net Liquidity = Federal Reserve Total Assets - Reverse Repo (RRP) Balance - Treasury General Account (TGA) Balance**
-
-This framework provides a more accurate picture by accounting for two major liquidity drains that are independent of the Fed's QE or QT operations:
-
-- **The Reverse Repo (RRP) Facility:** This is an overnight facility where eligible institutions, primarily money market funds (MMFs), can park excess cash with the Fed and earn a fixed rate. When an MMF invests in the RRP, it is essentially taking cash that would otherwise be in the private banking system (e.g., invested in T-bills or commercial paper) and lending it to the Fed. This money is therefore unavailable for private market funding. High RRP balances indicate a glut of cash with nowhere else to go, while a rapid decline in RRP usage can signal that this liquidity is being put to work elsewhere—or that it is being drained from the system entirely.
-
-- **The Treasury General Account (TGA):** This is the U.S. Treasury's primary checking account, held at the Federal Reserve. When the Treasury collects taxes or issues new bonds, cash moves from commercial bank accounts into the TGA, draining liquidity from the private sector. Conversely, when the Treasury spends money—on everything from Social Security payments to defense contracts—that cash flows back into the economy, adding liquidity. The TGA's balance can be extremely volatile, causing significant day-to-day swings in overall liquidity conditions.
-
-By subtracting the RRP and TGA balances from the Fed's total assets, we arrive at a net liquidity figure that better reflects the state of private-sector liquidity, giving a clearer signal of underlying financial conditions.
 
 ## 3. Monetary Policy Regime Detection
 
