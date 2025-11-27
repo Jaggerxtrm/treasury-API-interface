@@ -16,6 +16,7 @@ from datetime import datetime, timedelta
 import sys
 import os
 from typing import Dict, Tuple, Optional
+import duckdb
 
 # Add module paths
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'fiscal'))
@@ -47,85 +48,89 @@ FISCAL_IMPULSE_TARGET_PCT = 0.64  # Target weekly impulse as % of GDP
 
 def load_all_data() -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, Dict]:
     """
-    Execute all data collection pipelines and return processed DataFrames.
+    Load all pre-processed data directly from the DuckDB database.
 
     Returns:
         Tuple of (fiscal_df, fed_df, ofr_df, metadata_dict)
     """
     print("\n" + "="*60)
-    print("TREASURY LIQUIDITY DESK REPORT - DATA LOADING")
+    print("TREASURY LIQUIDITY DESK REPORT - DATA LOADING FROM DUCKDB")
     print("="*60)
 
+    DB_PATH = 'database/treasury_data.duckdb'
+    
     metadata = {
         'report_date': datetime.now().strftime('%Y-%m-%d'),
         'report_time': datetime.now().strftime('%H:%M:%S'),
-        'version': REPORT_VERSION
+        'version': REPORT_VERSION,
+        'source': f'DuckDB ({DB_PATH})'
     }
 
-    # 1. Fiscal Analysis
-    print("\n[1/3] Loading Fiscal Data...")
     try:
-        df_trans, df_tga = fetch_dts_data()
-        gdp_info = fetch_current_gdp()
-        current_gdp = gdp_info[0]
+        con = duckdb.connect(DB_PATH, read_only=True)
+        print(f"✓ Connected to database: {DB_PATH}")
 
-        fiscal_df, weekly_fiscal_df = process_fiscal_analysis(df_trans, df_tga, current_gdp)
-
-        metadata['fiscal'] = {
-            'gdp_value': current_gdp,
-            'gdp_quarter': gdp_info[2],
-            'gdp_is_estimated': gdp_info[4],
-            'records': len(fiscal_df),
-            'weekly_records': len(weekly_fiscal_df),
-            'last_date': fiscal_df.index[-1].strftime('%Y-%m-%d') if not fiscal_df.empty else None
-        }
-        print(f"✓ Fiscal: {len(fiscal_df)} records through {metadata['fiscal']['last_date']}")
-    except Exception as e:
-        print(f"❌ Fiscal data loading failed: {e}")
-        fiscal_df = pd.DataFrame()
-        metadata['fiscal'] = {'error': str(e)}
-
-    # 2. Fed Liquidity
-    print("\n[2/3] Loading Fed Liquidity Data...")
-    try:
-        fed_df_raw, series_metadata = fetch_fed_data()
-        fed_df = calculate_fed_metrics(fed_df_raw)
-
-        metadata['fed'] = {
-            'records': len(fed_df),
-            'last_date': fed_df.index[-1].strftime('%Y-%m-%d') if not fed_df.empty else None,
-            'series_count': len(series_metadata)
-        }
-        print(f"✓ Fed: {len(fed_df)} records through {metadata['fed']['last_date']}")
-    except Exception as e:
-        print(f"❌ Fed data loading failed: {e}")
-        fed_df = pd.DataFrame()
-        metadata['fed'] = {'error': str(e)}
-
-    # 3. OFR Repo Stress (if available)
-    print("\n[3/3] Loading OFR Repo Stress Data...")
-    try:
-        # Import OFR module if exists
-        from fed import ofr_analysis
-        ofr_df = ofr_analysis.main()
-
-        if not ofr_df.empty and len(ofr_df.index) > 0:
-            metadata['ofr'] = {
-                'records': len(ofr_df),
-                'last_date': ofr_df.index[-1].strftime('%Y-%m-%d')
+        # 1. Fiscal Analysis
+        print("\n[1/3] Loading Fiscal Data from DB...")
+        try:
+            fiscal_df = con.execute("SELECT * FROM fiscal_daily_metrics").fetchdf()
+            fiscal_df['record_date'] = pd.to_datetime(fiscal_df['record_date'])
+            fiscal_df = fiscal_df.set_index('record_date').sort_index()
+            
+            metadata['fiscal'] = {
+                'records': len(fiscal_df),
+                'last_date': fiscal_df.index[-1].strftime('%Y-%m-%d') if not fiscal_df.empty else None
             }
-            print(f"✓ OFR: {len(ofr_df)} records through {metadata['ofr']['last_date']}")
-        else:
+            print(f"✓ Fiscal: {len(fiscal_df)} records through {metadata['fiscal']['last_date']}")
+        except Exception as e:
+            print(f"❌ Fiscal data loading from DB failed: {e}")
+            fiscal_df = pd.DataFrame()
+            metadata['fiscal'] = {'error': str(e)}
+
+        # 2. Fed Liquidity
+        print("\n[2/3] Loading Fed Liquidity Data from DB...")
+        try:
+            fed_df = con.execute("SELECT * FROM fed_liquidity_daily").fetchdf()
+            fed_df['record_date'] = pd.to_datetime(fed_df['record_date'])
+            fed_df = fed_df.set_index('record_date').sort_index()
+            
+            metadata['fed'] = {
+                'records': len(fed_df),
+                'last_date': fed_df.index[-1].strftime('%Y-%m-%d') if not fed_df.empty else None
+            }
+            print(f"✓ Fed: {len(fed_df)} records through {metadata['fed']['last_date']}")
+        except Exception as e:
+            print(f"❌ Fed data loading from DB failed: {e}")
+            fed_df = pd.DataFrame()
+            metadata['fed'] = {'error': str(e)}
+
+        # 3. OFR Repo Stress (if available)
+        print("\n[3/3] Loading OFR Repo Stress Data from DB...")
+        try:
+            ofr_df = con.execute("SELECT * FROM ofr_financial_stress").fetchdf()
+            ofr_df['record_date'] = pd.to_datetime(ofr_df['record_date'])
+            ofr_df = ofr_df.set_index('record_date').sort_index()
+            
+            if not ofr_df.empty:
+                metadata['ofr'] = {
+                    'records': len(ofr_df),
+                    'last_date': ofr_df.index[-1].strftime('%Y-%m-%d')
+                }
+                print(f"✓ OFR: {len(ofr_df)} records through {metadata['ofr']['last_date']}")
+            else:
+                ofr_df = pd.DataFrame()
+                metadata['ofr'] = {'status': 'no_data'}
+        except Exception as e:
+            print(f"⚠️  OFR data loading from DB failed: {e}")
             ofr_df = pd.DataFrame()
-            metadata['ofr'] = {'status': 'no_data'}
-    except ImportError:
-        print("⚠️  OFR module not available - plumbing stress will use repo ops only")
-        ofr_df = pd.DataFrame()
-        metadata['ofr'] = {'status': 'not_available'}
+            metadata['ofr'] = {'error': str(e)}
+        
+        con.close()
+
     except Exception as e:
-        print(f"⚠️  OFR data loading failed: {e}")
-        ofr_df = pd.DataFrame()
-        metadata['ofr'] = {'error': str(e)}
+        print(f"❌ Database connection failed: {e}")
+        fiscal_df, fed_df, ofr_df = pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
+        metadata['database'] = {'error': str(e)}
 
     print("\n" + "="*60)
     print("DATA LOADING COMPLETE")
