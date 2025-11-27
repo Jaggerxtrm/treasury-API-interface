@@ -11,6 +11,12 @@ from datetime import datetime
 import json
 import traceback
 
+# Import the cleanup utility
+try:
+    from cleanup_empty_lines import integrated_cleanup_for_current_file
+except ImportError:
+    integrated_cleanup_for_current_file = None
+
 # Project root setup
 PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(PROJECT_ROOT)
@@ -177,6 +183,17 @@ def main():
     
     # Create report
     report_path = generate_pipeline_report(results, output_file)
+    
+    # Clean up empty lines from the generated file
+    print("\nCleaning up empty lines from pipeline report...")
+    if integrated_cleanup_for_current_file:
+        cleanup_success = integrated_cleanup_for_current_file(output_file)
+        if cleanup_success:
+            print("✓ Empty lines cleanup completed successfully")
+        else:
+            print("⚠️ Empty lines cleanup failed - file left with original formatting")
+    else:
+        print("⚠️ Cleanup utility not available - keeping original formatting")
     
     # Summary
     successful = sum(1 for r in results if r["success"])

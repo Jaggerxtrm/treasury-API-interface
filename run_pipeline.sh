@@ -122,6 +122,31 @@ EOF
 echo "Pipeline Complete: $SUCCESS_COUNT/$TOTAL_COUNT scripts succeeded"
 echo "Report saved to: $PROJECT_ROOT/$OUTPUT_FILE"
 
+# Clean up empty lines from the generated report
+echo "Cleaning up empty lines from pipeline report..."
+
+# Simple cleanup function using sed
+cleanup_empty_lines() {
+    local file="$1"
+    # Replace multiple consecutive empty lines with max 2 empty lines
+    sed -i '/^$/N;/^\n$/d' "$file"
+    sed -i '/^[[:space:]]*$/N;/^\n$/d' "$file"
+    
+    # Remove trailing whitespace
+    sed -i 's/[[:space:]]*$//' "$file"
+    
+    # Ensure file ends with single newline
+    if [ -s "$file" ]; then
+        tail -c 1 "$file" | read -r _ || echo >> "$file"
+    fi
+}
+
+if cleanup_empty_lines "$PROJECT_ROOT/$OUTPUT_FILE"; then
+    echo "✓ Empty lines cleanup completed successfully"
+else
+    echo "⚠️ Empty lines cleanup failed - file left with original formatting"
+fi
+
 # Exit with appropriate code
 if [ $SUCCESS_COUNT -eq $TOTAL_COUNT ]; then
     exit 0
