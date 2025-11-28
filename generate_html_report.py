@@ -85,8 +85,8 @@ def generate_html_report():
         'qt_pace': generate_qt_pace_chart(fed_chart_df),
         'ofr_stress': generate_ofr_stress_chart(ofr_chart_df),
         # New charts inspired by the PDF
-        'cumulative_flow': generate_cumulative_yoy_fiscal_flow_chart(),
-        'unemployment_yoy': generate_smoothed_yoy_chart('Cat_Unemployment', 'Unemployment Benefits (Smoothed YoY % Change)')
+        'cumulative_flow': generate_cumulative_yoy_fiscal_flow_chart(fiscal_df),
+        'unemployment_yoy': generate_smoothed_yoy_chart(fiscal_df, 'Cat_Unemployment', 'Unemployment Benefits (Smoothed YoY % Change)')
     }
     
     # 5. Generate Tables using the new multi-year function
@@ -106,15 +106,22 @@ def generate_html_report():
     env = Environment(loader=FileSystemLoader('templates'))
     template = env.get_template('dashboard.html')
     
-    # Placeholder for AI summary until integrated
-    executive_summary = """
+    # Dynamic Executive Summary
+    impulse_pct = metrics['fiscal'].get('impulse_pct_gdp', 0)
+    net_liq = metrics['monetary'].get('net_liquidity', 0) / 1_000_000_000_000
+    stress_idx = metrics['regime'].get('stress_index', 0)
+    
+    executive_summary = f"""
     <p><strong>Automated Analysis:</strong></p>
     <ul>
-        <li>Net Liquidity remains stable with recent TGA fluctuations offset by RRP drawdowns.</li>
-        <li>Fiscal impulse is tracking slightly above target, indicating continued support.</li>
-        <li>Money market stress indicators (SOFR-IORB) remain within normal ranges.</li>
+        <li><strong>Fiscal Stance:</strong> Weekly impulse is running at {impulse_pct:.2f}% of GDP. 
+            {'This is above target, indicating expansionary pressure.' if impulse_pct > 0.74 else 'This is below target, indicating contractionary pressure.' if impulse_pct < 0.54 else 'This is roughly on target.'}</li>
+        <li><strong>Liquidity Conditions:</strong> Net Liquidity stands at ${net_liq:.2f}T. 
+            {'RRP drawdowns are supporting liquidity despite QT.' if metrics['monetary'].get('rrp_change', 0) < 0 else 'RRP balances are stable.'}</li>
+        <li><strong>Market Stress:</strong> The Liquidity Stress Index is at {stress_idx:.0f}/100. 
+            {'Conditions are normal.' if stress_idx < 50 else 'Conditions are elevated, monitor SOFR spreads.'}</li>
     </ul>
-    <p><em>(AI integration pending...)</em></p>
+    <p><em>Generated on {datetime.now().strftime('%Y-%m-%d %H:%M')}</em></p>
     """
     
     html_output = template.render(

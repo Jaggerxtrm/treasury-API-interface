@@ -24,12 +24,13 @@ from config import (
     SPIKE_THRESHOLD_STD,
     SPIKE_ABSOLUTE_BPS
 )
-from utils.api_client import FREDClient
+from utils.api_client import FREDClient, NYFedClient
 from utils.data_loader import load_tga_data, get_output_path
 from utils.db_manager import TimeSeriesDB
 
 # FRED client instance (reusable)
 fred_client = FREDClient()
+nyfed_client = NYFedClient()
 
 def check_data_freshness(series_metadata, report_date=None):
     """
@@ -87,6 +88,52 @@ def load_tga_data_wrapper(csv_path=None):
     """Wrapper for backward compatibility."""
     return load_tga_data(csv_path)
 
+def fetch_nyfed_rrp_data(start_date=START_DATE):
+    """
+    Fetch RRP data directly from NY Fed API (more current than FRED).
+
+    Args:
+        start_date: Start date for data fetch (YYYY-MM-DD)
+
+    Returns:
+        pd.Series: RRP balance in BILLIONS (to match FRED format)
+        pd.Timestamp: Last update date
+    """
+    print("Fetching RRP from NY Fed API (more current than FRED)...")
+
+    try:
+        df_rrp = nyfed_client.fetch_repo_operations(
+            start_date=start_date,
+            operation_type="Reverse Repo"
+        )
+
+        if df_rrp.empty:
+            print("⚠️  No NY Fed RRP data available")
+            return pd.Series(), None
+
+        # Aggregate by date if multiple operations per day
+        if 'totalAmtAccepted' not in df_rrp.columns:
+            print("⚠️  NY Fed RRP data missing 'totalAmtAccepted' column")
+            return pd.Series(), None
+
+        # Sum operations by date
+        rrp_by_date = df_rrp.groupby(df_rrp.index)['totalAmtAccepted'].sum()
+
+        # Convert from ones (dollars) to billions (to match FRED format)
+        # NY Fed API returns values in dollars, not millions
+        rrp_billions = rrp_by_date / 1_000_000_000
+
+        last_update = rrp_by_date.index.max()
+
+        print(f"✓ NY Fed RRP: {len(rrp_billions)} records, latest: {last_update.strftime('%Y-%m-%d')}")
+        print(f"  Latest RRP: ${rrp_billions.iloc[-1]:.2f}B")
+
+        return rrp_billions, last_update
+
+    except Exception as e:
+        print(f"⚠️  Error fetching NY Fed RRP: {e}")
+        return pd.Series(), None
+
 def fetch_all_data():
     """
     Fetches all required series and merges them into a single DataFrame.
@@ -114,7 +161,31 @@ def fetch_all_data():
         print("⚠️  TGA data not available - proceeding without TGA (Net Liquidity will be partial)")
         # Add placeholder TGA column with NaN to maintain structure
         df['TGA_Balance'] = np.nan
-    
+
+    # ==========================================================================
+    # REPLACE FRED RRP WITH NY FED RRP (more current and accurate)
+    # ==========================================================================
+    nyfed_rrp_series, nyfed_rrp_last_update = fetch_nyfed_rrp_data(START_DATE)
+
+    if not nyfed_rrp_series.empty:
+        # Replace FRED RRP data with NY Fed RRP data
+        if 'RRP_Balance' in df.columns:
+            # Preserve FRED data where NY Fed has gaps
+            nyfed_rrp_reindexed = nyfed_rrp_series.reindex(df.index)
+            # Use NY Fed where available, fallback to FRED
+            df['RRP_Balance'] = nyfed_rrp_reindexed.combine_first(df['RRP_Balance'])
+            print(f"✓ Replaced {nyfed_rrp_reindexed.notna().sum()} FRED RRP values with NY Fed data")
+        else:
+            # No FRED RRP data, add NY Fed RRP directly
+            df = df.join(nyfed_rrp_series.rename('RRP_Balance'), how='outer')
+            print("✓ Added NY Fed RRP data (FRED RRP not available)")
+
+        # Update metadata
+        series_metadata['RRP_Balance'] = nyfed_rrp_last_update
+        series_metadata['RRPONTSYD'] = nyfed_rrp_last_update  # Also update FRED series metadata
+    else:
+        print("⚠️  NY Fed RRP not available, using FRED RRP data")
+
     # Forward fill ONLY weekly data (Fed Balance Sheet) to preserve daily data integrity
     # Weekly series from FRED (update Wednesdays, should carry forward)
     weekly_series = ['WALCL', 'WSHOMCB', 'TREAST', 'WSHOBL', 'WSHONBNL', 'SWPT']
@@ -248,7 +319,8 @@ def calculate_effective_policy_stance(df):
         # 4b. QUALITÀ: Effetto "shadow QE" da reinvestimento + repo operations
         # Questo misura il supporto qualitativo al mercato (duration, risk)
         # NON è net liquidity ma ha effetto bullish per asset prices
-        df['QE_Effective'] = df['MBS_to_Bills_Reinvestment'] + df['Repo_Ops_Balance_M']
+        # Fill NaN with 0 to avoid NaN propagation in sum
+        df['QE_Effective'] = df['MBS_to_Bills_Reinvestment'].fillna(0) + df['Repo_Ops_Balance_M'].fillna(0)
 
         # Alias semantico per chiarezza
         df['Qualitative_Easing_Support'] = df['QE_Effective']
@@ -291,8 +363,8 @@ def calculate_metrics(df):
     # Flag imputed values BEFORE forward-filling
     if 'RRP_Balance' in df.columns:
         df['RRP_Imputed'] = df['RRP_Balance'].isna()
-        # Forward-fill RRP for weekends/holidays
-        df['RRP_Balance'] = df['RRP_Balance'].ffill()
+        # Forward-fill RRP for weekends/holidays (MAX 3 days to prevent stale data)
+        df['RRP_Balance'] = df['RRP_Balance'].ffill(limit=3)
         df['RRP_Balance_M'] = df['RRP_Balance'] * 1000  # Recalculate after ffill
     
     if 'TGA_Balance' in df.columns:

@@ -105,7 +105,7 @@ def load_all_data() -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, Dict]:
             metadata['fed'] = {'error': str(e)}
 
         # 3. OFR Repo Stress (if available)
-        print("\n[3/3] Loading OFR Repo Stress Data from DB...")
+        print("\n[3/4] Loading OFR Repo Stress Data from DB...")
         try:
             ofr_df = con.execute("SELECT * FROM ofr_financial_stress").fetchdf()
             ofr_df['record_date'] = pd.to_datetime(ofr_df['record_date'])
@@ -124,6 +124,40 @@ def load_all_data() -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, Dict]:
             print(f"⚠️  OFR data loading from DB failed: {e}")
             ofr_df = pd.DataFrame()
             metadata['ofr'] = {'error': str(e)}
+
+        # 4. Settlement Fails (Merge into Fed DF)
+        print("\n[4/4] Loading Settlement Fails Data from DB...")
+        try:
+            fails_df = con.execute("SELECT * FROM nyfed_settlement_fails").fetchdf()
+            if not fails_df.empty:
+                print(f"   Raw Fails Columns: {fails_df.columns.tolist()}")
+                fails_df['record_date'] = pd.to_datetime(fails_df['record_date'])
+                fails_df = fails_df.set_index('record_date').sort_index()
+                
+                # Rename columns to match chart expectations (camelCase -> Snake_Case)
+                # We check what exists before renaming
+                rename_map = {}
+                if 'failsToReceive' in fails_df.columns:
+                    rename_map['failsToReceive'] = 'Fails_To_Receive'
+                if 'failsToDeliver' in fails_df.columns:
+                    rename_map['failsToDeliver'] = 'Fails_To_Deliver'
+                if 'totalFails' in fails_df.columns:
+                    rename_map['totalFails'] = 'Total_Fails'
+                
+                if rename_map:
+                    fails_df = fails_df.rename(columns=rename_map)
+                    cols_to_merge = list(rename_map.values())
+                    
+                    # Merge into fed_df
+                    fed_df = fed_df.join(fails_df[cols_to_merge], how='left')
+                    print(f"✓ Fails: Merged {len(fails_df)} records into Fed data (Cols: {cols_to_merge})")
+                else:
+                    print("⚠️  No matching fails columns found (expected failsToReceive, etc.)")
+            else:
+                print("⚠️  No settlement fails data found in DB")
+        except Exception as e:
+            print(f"⚠️  Settlement fails loading failed: {e}")
+
         
         con.close()
 
