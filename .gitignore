@@ -10,6 +10,7 @@ ENV/
 
 # Data
 *.db
+*.duckdb
 *.sqlite
 
 data/cache/
