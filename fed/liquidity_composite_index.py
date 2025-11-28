@@ -30,45 +30,7 @@ Components:
    - Funding stress indicators
 """
 
-# File paths for data sources (try multiple locations)
-import os
-
-def find_file(filename, search_paths):
-    """Helper to find file in multiple paths"""
-    for path in search_paths:
-        if os.path.exists(path):
-            return path
-    return None
-
-FISCAL_SEARCH_PATHS = [
-    "outputs/fiscal/fiscal_analysis_full.csv",
-    "../outputs/fiscal/fiscal_analysis_full.csv",
-    "fiscal/outputs/fiscal/fiscal_analysis_full.csv",
-]
-
-FED_SEARCH_PATHS = [
-    "outputs/fed/fed_liquidity_full.csv",
-    "../outputs/fed/fed_liquidity_full.csv",
-    "fed/outputs/fed/fed_liquidity_full.csv",
-]
-
-REPO_SEARCH_PATHS = [
-    "outputs/fed/nyfed_repo_ops.csv",
-    "../outputs/fed/nyfed_repo_ops.csv",
-    "fed/outputs/fed/nyfed_repo_ops.csv",
-]
-
-OFR_SEARCH_PATHS = [
-    "outputs/fed/ofr_repo_analysis.csv",
-    "../outputs/fed/ofr_repo_analysis.csv",
-    "fed/outputs/fed/ofr_repo_analysis.csv",
-]
-
-FAILS_SEARCH_PATHS = [
-    "outputs/fed/nyfed_settlement_fails.csv",
-    "../outputs/fed/nyfed_settlement_fails.csv",
-    "fed/outputs/fed/nyfed_settlement_fails.csv",
-]
+import duckdb
 
 # ... (Weights are imported from config.py, assuming config.py is imported or defined here. 
 # Wait, config.py is NOT imported in the original file! It defines WEIGHTS locally!
@@ -111,78 +73,85 @@ PLUMBING_WEIGHTS = {
 
 def load_data():
     """
-    Loads data from all modules.
+    Loads data from all modules from the DuckDB database.
     """
-    print("Loading data from CSV files...")
+    print("Loading data from DuckDB database...")
 
     data = {}
-
-    # Resolve paths
-    fiscal_path = find_file("fiscal_analysis_full.csv", FISCAL_SEARCH_PATHS)
-    fed_path = find_file("fed_liquidity_full.csv", FED_SEARCH_PATHS)
-    repo_path = find_file("nyfed_repo_ops.csv", REPO_SEARCH_PATHS)
-    fails_path = find_file("nyfed_settlement_fails.csv", FAILS_SEARCH_PATHS)
-    ofr_path = find_file("ofr_repo_analysis.csv", OFR_SEARCH_PATHS)
+    DB_PATH = 'database/treasury_data.duckdb'
 
     try:
-        if fiscal_path:
-            df_fiscal = pd.read_csv(fiscal_path, index_col=0, parse_dates=True)
+        con = duckdb.connect(DB_PATH, read_only=True)
+
+        # Fiscal data
+        try:
+            df_fiscal = con.execute("SELECT * FROM fiscal_daily_metrics").fetchdf()
+            df_fiscal['record_date'] = pd.to_datetime(df_fiscal['record_date'])
+            df_fiscal = df_fiscal.set_index('record_date').sort_index()
             data['fiscal'] = df_fiscal
             print(f"Fiscal data loaded: {len(df_fiscal)} records")
-        else:
-            print("Fiscal data file not found")
+        except Exception as e:
+            print(f"Could not load fiscal data from db: {e}")
             data['fiscal'] = pd.DataFrame()
-    except Exception as e:
-        print(f"Could not load fiscal data: {e}")
-        data['fiscal'] = pd.DataFrame()
 
-    try:
-        if fed_path:
-            df_fed = pd.read_csv(fed_path, index_col=0, parse_dates=True)
+        # Fed liquidity data
+        try:
+            df_fed = con.execute("SELECT * FROM fed_liquidity_daily").fetchdf()
+            df_fed['record_date'] = pd.to_datetime(df_fed['record_date'])
+            df_fed = df_fed.set_index('record_date').sort_index()
             data['fed'] = df_fed
             print(f"Fed liquidity data loaded: {len(df_fed)} records")
-        else:
-            print("Fed liquidity data file not found")
+        except Exception as e:
+            print(f"Could not load Fed data from db: {e}")
             data['fed'] = pd.DataFrame()
-    except Exception as e:
-        print(f"Could not load Fed data: {e}")
-        data['fed'] = pd.DataFrame()
 
-    try:
-        if repo_path:
-            df_repo = pd.read_csv(repo_path, index_col=0, parse_dates=True)
+        # Repo operations data
+        try:
+            df_repo = con.execute("SELECT * FROM nyfed_repo_ops").fetchdf()
+            df_repo['record_date'] = pd.to_datetime(df_repo['record_date'])
+            df_repo = df_repo.set_index('record_date').sort_index()
             data['repo'] = df_repo
             print(f"Repo operations data loaded: {len(df_repo)} records")
-        else:
-            print("Repo operations data file not found")
+        except Exception as e:
+            print(f"Could not load repo data from db: {e}")
             data['repo'] = pd.DataFrame()
-    except Exception as e:
-        print(f"Could not load repo data: {e}")
-        data['repo'] = pd.DataFrame()
 
-    try:
-        if fails_path:
-            df_fails = pd.read_csv(fails_path, index_col=0, parse_dates=True)
+        # Settlement fails data
+        try:
+            df_fails = con.execute("SELECT * FROM nyfed_settlement_fails").fetchdf()
+            df_fails['record_date'] = pd.to_datetime(df_fails['record_date'])
+            df_fails = df_fails.set_index('record_date').sort_index()
             data['fails'] = df_fails
             print(f"Settlement fails data loaded: {len(df_fails)} records")
-        else:
-            print("Settlement fails data file not found")
+        except Exception as e:
+            print(f"Could not load fails data from db: {e}")
             data['fails'] = pd.DataFrame()
-    except Exception as e:
-        print(f"Could not load fails data: {e}")
-        data['fails'] = pd.DataFrame()
-        
-    try:
-        if ofr_path:
-            df_ofr = pd.read_csv(ofr_path, index_col=0, parse_dates=True)
+
+        # OFR repo analysis data
+        try:
+            df_ofr = con.execute("SELECT * FROM ofr_financial_stress").fetchdf()
+            df_ofr['record_date'] = pd.to_datetime(df_ofr['record_date'])
+            df_ofr = df_ofr.set_index('record_date').sort_index()
             data['ofr'] = df_ofr
             print(f"OFR repo analysis data loaded: {len(df_ofr)} records")
-        else:
-            print("OFR repo analysis data file not found")
+        except duckdb.CatalogException:
+            print("OFR repo analysis data not found in db, skipping.")
             data['ofr'] = pd.DataFrame()
+        except Exception as e:
+            print(f"Could not load OFR data from db: {e}")
+            data['ofr'] = pd.DataFrame()
+
+        con.close()
+
     except Exception as e:
-        print(f"Could not load OFR data: {e}")
+        print(f"Could not connect to database: {e}")
+        # Fallback to empty dataframes
+        data['fiscal'] = pd.DataFrame()
+        data['fed'] = pd.DataFrame()
+        data['repo'] = pd.DataFrame()
+        data['fails'] = pd.DataFrame()
         data['ofr'] = pd.DataFrame()
+
 
     return data
 
@@ -480,7 +449,7 @@ def generate_report(indices):
             
         # Convert categorical to string
         for col in df_save.columns:
-            if pd.api.types.is_categorical_dtype(df_save[col]):
+            if isinstance(df_save[col].dtype, pd.CategoricalDtype):
                 df_save[col] = df_save[col].astype(str)
                 
         db.upsert_data(df_save, "liquidity_composite_index", key_col="record_date")

@@ -134,6 +134,46 @@ def fetch_nyfed_rrp_data(start_date=START_DATE):
         print(f"⚠️  Error fetching NY Fed RRP: {e}")
         return pd.Series(), None
 
+def fetch_nyfed_repo_data(start_date=START_DATE):
+    """
+    Fetch Repo Operations data from NY Fed API.
+
+    Args:
+        start_date: Start date for data fetch (YYYY-MM-DD)
+
+    Returns:
+        pd.Series: Repo operations balance in BILLIONS (to match FRED format)
+        pd.Timestamp: Last update date
+    """
+    print("Fetching Repo Operations from NY Fed API...")
+
+    try:
+        df_repo = nyfed_client.fetch_repo_operations(
+            start_date=start_date,
+            operation_type="Repo"
+        )
+
+        if df_repo.empty:
+            print("⚠️  No NY Fed Repo Operations data available")
+            return pd.Series(), None
+
+        # Sum accepted amounts by date
+        repo_by_date = df_repo.groupby(df_repo.index)['totalAmtAccepted'].sum()
+
+        # Convert from ones (dollars) to billions (to match FRED format)
+        repo_billions = repo_by_date / 1_000_000_000
+
+        last_update = repo_by_date.index.max()
+
+        print(f"✓ NY Fed Repo Ops: {len(repo_billions)} records, latest: {last_update.strftime('%Y-%m-%d')}")
+        print(f"  Latest Repo Ops: ${repo_billions.iloc[-1]:.2f}B")
+
+        return repo_billions, last_update
+
+    except Exception as e:
+        print(f"⚠️  Error fetching NY Fed Repo Operations: {e}")
+        return pd.Series(), None
+
 def fetch_all_data():
     """
     Fetches all required series and merges them into a single DataFrame.
@@ -185,6 +225,24 @@ def fetch_all_data():
         series_metadata['RRPONTSYD'] = nyfed_rrp_last_update  # Also update FRED series metadata
     else:
         print("⚠️  NY Fed RRP not available, using FRED RRP data")
+
+    # ==========================================================================
+    # REPLACE FRED REPO OPS WITH NY FED REPO OPS (more current and accurate)
+    # ==========================================================================
+    nyfed_repo_series, nyfed_repo_last_update = fetch_nyfed_repo_data(START_DATE)
+
+    if not nyfed_repo_series.empty:
+        if 'Repo_Ops_Balance' in df.columns:
+            nyfed_repo_reindexed = nyfed_repo_series.reindex(df.index)
+            df['Repo_Ops_Balance'] = nyfed_repo_reindexed.combine_first(df['Repo_Ops_Balance'])
+            print(f"✓ Replaced {nyfed_repo_reindexed.notna().sum()} FRED Repo Ops values with NY Fed data")
+        else:
+            df = df.join(nyfed_repo_series.rename('Repo_Ops_Balance'), how='outer')
+            print("✓ Added NY Fed Repo Ops data (FRED Repo Ops not available)")
+        series_metadata['Repo_Ops_Balance'] = nyfed_repo_last_update
+        series_metadata['RPONTTLD'] = nyfed_repo_last_update
+    else:
+        print("⚠️  NY Fed Repo Ops not available, using FRED Repo Ops data")
 
     # Forward fill ONLY weekly data (Fed Balance Sheet) to preserve daily data integrity
     # Weekly series from FRED (update Wednesdays, should carry forward)
@@ -372,11 +430,18 @@ def calculate_metrics(df):
         # Forward-fill TGA for rare NULL days
         df['TGA_Balance'] = df['TGA_Balance'].ffill()
     
+    if 'Repo_Ops_Balance' in df.columns:
+        df['Repo_Ops_Imputed'] = df['Repo_Ops_Balance'].isna()
+        # Forward-fill Repo_Ops_Balance for weekends/holidays (MAX 3 days to prevent stale data)
+        df['Repo_Ops_Balance'] = df['Repo_Ops_Balance'].ffill(limit=3)
+        df['Repo_Ops_Balance_M'] = df['Repo_Ops_Balance'] * 1000  # Recalculate after ffill
+    
     # Count imputed values for logging
     rrp_imputed_count = df['RRP_Imputed'].sum() if 'RRP_Imputed' in df.columns else 0
     tga_imputed_count = df['TGA_Imputed'].sum() if 'TGA_Imputed' in df.columns else 0
-    if rrp_imputed_count > 0 or tga_imputed_count > 0:
-        print(f"✓ Forward-filled {rrp_imputed_count} RRP values and {tga_imputed_count} TGA values for non-trading days")
+    repo_imputed_count = df['Repo_Ops_Imputed'].sum() if 'Repo_Ops_Imputed' in df.columns else 0
+    if rrp_imputed_count > 0 or tga_imputed_count > 0 or repo_imputed_count > 0:
+        print(f"✓ Forward-filled {rrp_imputed_count} RRP values, {tga_imputed_count} TGA values, and {repo_imputed_count} Repo Ops values for non-trading days")
 
     # 1. Calculate Effective Policy Stance (needs _M versions)
     df = calculate_effective_policy_stance(df)

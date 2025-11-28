@@ -214,9 +214,9 @@ def calculate_integrated_flows(
     # 1. Fiscal Impulse (weekly average from 4W cumulative)
     if '4W_Cum_Impulse' in fiscal_recent.columns:
         flows['fiscal_impulse_weekly'] = fiscal_recent.loc[common_dates, '4W_Cum_Impulse'] / 4
-    elif 'MA20_Impulse' in fiscal_recent.columns:
+    elif 'MA20_Net_Impulse' in fiscal_recent.columns:
         # Fallback: MA20 * 5 = weekly
-        flows['fiscal_impulse_weekly'] = fiscal_recent.loc[common_dates, 'MA20_Impulse'] * 5
+        flows['fiscal_impulse_weekly'] = fiscal_recent.loc[common_dates, 'MA20_Net_Impulse'] * 5
     else:
         flows['fiscal_impulse_weekly'] = 0
 
@@ -830,7 +830,7 @@ def build_final_report(
             if reinvestment > 0:
                 report_lines.append(f"    • Reinvestimento:   ${reinvestment:,.0f}M")
             if repo > 0:
-                report_lines.append(f"    • Repo Operations:  ${repo:,.0f}M")
+                report_lines.append(f"    • Repo Operations:  ${repo:,.0f}B")
         report_lines.append(f"  (Supporto qualitativo: duration, risk appetite)")
         report_lines.append("")
 
