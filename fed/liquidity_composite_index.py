@@ -53,17 +53,18 @@ FISCAL_WEIGHTS = {
 }
 
 MONETARY_WEIGHTS = {
-    "net_liquidity": 0.30,                    # Primary driver
+    "net_liquidity": 0.25,                    # Primary driver
     "net_balance_sheet_flow": 0.15,          # QT/QE puro (quantità)
-    "qualitative_easing_support": 0.25,      # Shadow QE (reinvestimento + repo) - includes repo operations
-    "rrp_change": 0.20,                      # RRP drawdown effect
+    "fed_active_support": 0.20,              # Fed Active Support (Repo + Swaps) - NEW
+    "net_repo_operations": 0.15,             # Net Repo (Repo - RRP) - NEW
+    "rrp_change": 0.15,                      # RRP drawdown effect
     "sofr_stress": 0.10,                     # Money market stress indicator
 }
 
-# Legacy compatibility: policy_stance = net_balance_sheet_flow + qualitative_easing_support
-# (0.40 = 0.15 + 0.25)
+# Legacy compatibility aliases
+MONETARY_WEIGHTS["qualitative_easing_support"] = MONETARY_WEIGHTS["fed_active_support"]
 MONETARY_WEIGHTS["policy_stance"] = (MONETARY_WEIGHTS["net_balance_sheet_flow"] +
-                                      MONETARY_WEIGHTS["qualitative_easing_support"])
+                                      MONETARY_WEIGHTS["fed_active_support"])
 
 PLUMBING_WEIGHTS = {
     "repo_stress": 0.40,            # NY Fed Repo Submission Ratio
@@ -232,6 +233,14 @@ def calculate_monetary_component(df_fed):
     """
     Calculates Monetary Liquidity sub-index.
     Higher = More Fed liquidity in the system.
+    
+    Components:
+    1. Net Liquidity - Primary driver (Fed Assets - RRP - TGA)
+    2. Net Balance Sheet Flow - QT/QE quantity
+    3. Fed Active Support - Repo Operations + Swap Lines
+    4. Net Repo Operations - Repo minus RRP (net intervention)
+    5. RRP Change - Liquidity release from RRP drawdown
+    6. SOFR Stress - Money market stress (inverted)
     """
     if df_fed.empty:
         return pd.Series(dtype=float)
@@ -247,39 +256,43 @@ def calculate_monetary_component(df_fed):
         net_liq_norm = normalize_series(df_fed['Net_Liquidity'], method='zscore')
         monetary_index += net_liq_norm * MONETARY_WEIGHTS['net_liquidity']
 
-    # 2a. Net Balance Sheet Flow (QUANTITÀ: QT/QE puro)
-    # Misura il cambio netto negli assets della Fed (liquidity injection/drain)
+    # 2. Net Balance Sheet Flow (QUANTITÀ: QT/QE puro)
     if 'Net_Balance_Sheet_Flow' in df_fed.columns:
-        # Positive = QE (Injection), Negative = QT (Drain)
         flow_norm = normalize_series(df_fed['Net_Balance_Sheet_Flow'], method='zscore')
         monetary_index += flow_norm * MONETARY_WEIGHTS['net_balance_sheet_flow']
     elif 'Flow_Nominal_Assets' in df_fed.columns:
-        # Alias fallback
         flow_norm = normalize_series(df_fed['Flow_Nominal_Assets'], method='zscore')
         monetary_index += flow_norm * MONETARY_WEIGHTS['net_balance_sheet_flow']
     elif 'QT_Pace_Assets_Weekly' in df_fed.columns:
-        # Legacy fallback: QT_Pace_Assets_Weekly è alias di Flow_Nominal_Assets
         flow_norm = normalize_series(df_fed['QT_Pace_Assets_Weekly'], method='zscore')
         monetary_index += flow_norm * MONETARY_WEIGHTS['net_balance_sheet_flow']
 
-    # 2b. Qualitative Easing Support (QUALITÀ: Shadow QE)
-    # Misura l'effetto di supporto qualitativo da reinvestimento MBS→Bills + Repo
-    if 'Qualitative_Easing_Support' in df_fed.columns:
-        # Positive = supporto al mercato (duration, risk appetite)
+    # 3. Fed Active Support (Repo Ops + Swap Lines) - NEW
+    # High active support = accommodative (positive for liquidity)
+    if 'Fed_Active_Support_M' in df_fed.columns:
+        active_norm = normalize_series(df_fed['Fed_Active_Support_M'], method='zscore')
+        monetary_index += active_norm * MONETARY_WEIGHTS['fed_active_support']
+    elif 'Qualitative_Easing_Support' in df_fed.columns:
+        # Fallback to legacy metric
         qual_norm = normalize_series(df_fed['Qualitative_Easing_Support'], method='zscore')
-        monetary_index += qual_norm * MONETARY_WEIGHTS['qualitative_easing_support']
+        monetary_index += qual_norm * MONETARY_WEIGHTS['fed_active_support']
     elif 'QE_Effective' in df_fed.columns:
-        # Alias fallback
         qual_norm = normalize_series(df_fed['QE_Effective'], method='zscore')
-        monetary_index += qual_norm * MONETARY_WEIGHTS['qualitative_easing_support']
+        monetary_index += qual_norm * MONETARY_WEIGHTS['fed_active_support']
 
-    # 3. RRP Change (decline = liquidity release)
+    # 4. Net Repo Operations (Repo - RRP) - NEW
+    # Positive = net injection, Negative = net drain
+    if 'Net_Repo_Operations_M' in df_fed.columns:
+        net_repo_norm = normalize_series(df_fed['Net_Repo_Operations_M'], method='zscore')
+        monetary_index += net_repo_norm * MONETARY_WEIGHTS['net_repo_operations']
+
+    # 5. RRP Change (decline = liquidity release)
     if 'RRP_Change' in df_fed.columns:
         rrp_release = -df_fed['RRP_Change']  # Decline in RRP = positive
         rrp_norm = normalize_series(rrp_release, method='zscore')
         monetary_index += rrp_norm * MONETARY_WEIGHTS['rrp_change']
 
-    # 4. SOFR Stress (wider spread = tighter, negative for liquidity)
+    # 6. SOFR Stress (wider spread = tighter, negative for liquidity)
     if 'Spread_SOFR_IORB' in df_fed.columns:
         sofr_stress = -df_fed['Spread_SOFR_IORB']  # Higher spread = stress
         sofr_norm = normalize_series(sofr_stress, method='zscore')

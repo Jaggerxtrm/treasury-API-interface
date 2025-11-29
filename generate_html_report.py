@@ -74,7 +74,7 @@ def generate_html_report():
     fed_chart_df = filter_data_for_report(fed_df, chart_start_date)
     ofr_chart_df = filter_data_for_report(ofr_df, chart_start_date)
     
-    # 4. Generate Charts
+    # 4. Generate Standard Charts
     print("Generating interactive charts...")
     charts = {
         'net_liquidity': generate_net_liquidity_chart(fed_chart_df),
@@ -89,7 +89,67 @@ def generate_html_report():
         'unemployment_yoy': generate_smoothed_yoy_chart(fiscal_df, 'Cat_Unemployment', 'Unemployment Benefits (Smoothed YoY % Change)')
     }
     
-    # 5. Generate Tables using the new multi-year function
+    # 5. Generate Comprehensive Charts (Chart Dump)
+    print("Generating comprehensive chart dump...")
+    from dashboard_utils.charts import generate_generic_chart, generate_generic_table
+    
+    comprehensive_config = {
+        'Fiscal Analysis': {
+            'df': fiscal_df,
+            'charts': [
+                {'title': 'Fiscal Impulse Components', 'cols': ['Total_Spending', 'Total_Taxes', 'Net_Impulse'], 'y_axis': 'Millions USD'},
+                {'title': 'Moving Averages', 'cols': ['MA20_Net_Impulse', 'MA5_Net_Impulse'], 'y_axis': 'Millions USD'},
+                {'title': 'TGA Balance', 'cols': ['TGA_Balance'], 'y_axis': 'Millions USD'},
+                {'title': 'Spending Categories', 'cols': ['Defense', 'Medicare', 'Social_Security', 'Interest_on_Debt', 'Education', 'Health', 'Veterans'], 'y_axis': 'Millions USD'},
+                {'title': 'Tax Categories', 'cols': ['Withheld_Income', 'Individual_Income_Tax', 'Corporate_Income_Tax', 'Excise_Taxes'], 'y_axis': 'Millions USD'}
+            ]
+        },
+        'Fed Balance Sheet': {
+            'df': fed_df,
+            'charts': [
+                {'title': 'Fed Assets Breakdown', 'cols': ['Fed_Total_Assets', 'Fed_Treasury_Holdings', 'Fed_MBS_Holdings'], 'y_axis': 'Millions USD'},
+                {'title': 'Liabilities Breakdown', 'cols': ['RRP_Balance', 'TGA_Balance', 'Reserve_Balances'], 'y_axis': 'Millions USD'},
+                {'title': 'Liquidity Injection/Drain', 'cols': ['Repo_Ops_Balance', 'RRP_Balance'], 'y_axis': 'Billions USD'},
+                {'title': 'QT Pace', 'cols': ['QT_Pace_Assets_Weekly', 'QT_Pace_Treasury_Weekly', 'MBS_Runoff_Weekly'], 'y_axis': 'Millions USD'}
+            ]
+        },
+        'Market Plumbing & Rates': {
+            'df': fed_df,
+            'charts': [
+                {'title': 'Key Rates', 'cols': ['SOFR_Rate', 'IORB_Rate', 'EFFR_Rate', 'TGCR_Rate', 'BGCR_Rate'], 'y_axis': 'Percent'},
+                {'title': 'Spreads', 'cols': ['Spread_SOFR_IORB', 'Spread_EFFR_IORB'], 'y_axis': 'Basis Points'},
+                {'title': 'Treasury Yields', 'cols': ['UST_2Y', 'UST_5Y', 'UST_10Y', 'UST_30Y'], 'y_axis': 'Percent'},
+                {'title': 'Yield Curve', 'cols': ['Curve_10Y2Y', 'Curve_5s30s'], 'y_axis': 'Basis Points'},
+                {'title': 'Breakevens (Inflation Exp)', 'cols': ['Breakeven_10Y', 'Breakeven_5Y'], 'y_axis': 'Percent'},
+                {'title': 'Settlement Fails', 'cols': ['Total_Fails', 'Fails_To_Deliver', 'Fails_To_Receive'], 'y_axis': 'Millions USD'}
+            ]
+        }
+    }
+    
+    comprehensive_data = {}
+    
+    for category, config in comprehensive_config.items():
+        df = config['df']
+        # Filter for charts (last 2 years)
+        chart_df = filter_data_for_report(df, chart_start_date)
+        
+        category_content = []
+        for item in config['charts']:
+            # Generate Chart
+            chart_html = generate_generic_chart(chart_df, item['cols'], item['title'], item['y_axis'])
+            
+            # Generate Table (last 30 days)
+            table_html = generate_generic_table(df, item['cols'], f"{item['title']} (Recent Data)")
+            
+            category_content.append({
+                'title': item['title'],
+                'chart': chart_html,
+                'table': table_html
+            })
+            
+        comprehensive_data[category] = category_content
+
+    # 6. Generate Tables using the new multi-year function
     print("Generating multi-year data tables...")
     tables = {
         'fiscal_impulse_summary': create_multi_year_summary_table('Net_Impulse', 'Fiscal Impulse Summary'),
@@ -101,7 +161,7 @@ def generate_html_report():
         'plumbing': generate_html_table(fed_df[['SOFR_Rate', 'IORB_Rate', 'Spread_SOFR_IORB', 'Repo_Ops_Balance']], "Market Plumbing")
     }
     
-    # 6. Render Template
+    # 7. Render Template
     print("Rendering HTML template...")
     env = Environment(loader=FileSystemLoader('templates'))
     template = env.get_template('dashboard.html')
@@ -127,14 +187,15 @@ def generate_html_report():
     html_output = template.render(
         report_date=datetime.now().strftime('%Y-%m-%d'),
         report_time=datetime.now().strftime('%H:%M:%S'),
-        version="1.1.0",
+        version="1.2.0 (Comprehensive)",
         metrics=metrics,
         charts=charts,
         tables=tables,
-        executive_summary=executive_summary
+        executive_summary=executive_summary,
+        comprehensive_data=comprehensive_data  # Pass new data
     )
     
-    # 7. Save Output
+    # 8. Save Output
     output_dir = 'outputs'
     os.makedirs(output_dir, exist_ok=True)
     filename = f"dashboard_{datetime.now().strftime('%Y-%m-%d')}.html"

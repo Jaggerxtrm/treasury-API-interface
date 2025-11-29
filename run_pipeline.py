@@ -22,11 +22,13 @@ PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(PROJECT_ROOT)
 
 # Scripts to run in order
+# NOTE: nyfed_reference_rates.py and nyfed_operations.py must run BEFORE fed_liquidity.py
+# because fed_liquidity.py loads the NY Fed rates CSV for fresher daily rates data
 SCRIPTS = [
     "python fiscal/fiscal_analysis.py",
-    "python fed/fed_liquidity.py", 
-    "python fed/nyfed_operations.py",
-    "python fed/nyfed_reference_rates.py",
+    "python fed/nyfed_reference_rates.py",   # Moved up - provides daily rates (SOFR, EFFR, TGCR)
+    "python fed/nyfed_operations.py",        # Moved up - provides RRP/Repo operations data
+    "python fed/fed_liquidity.py",           # Now can load NY Fed rates CSV
     "python fed/nyfed_settlement_fails.py",
     "python fed/liquidity_composite_index.py",
     "python generate_desk_report.py"
@@ -137,9 +139,9 @@ def generate_pipeline_report(results, output_path):
 - **Working Directory:** {PROJECT_ROOT}
 - **Scripts Executed:**
   1. fiscal/fiscal_analysis.py
-  2. fed/fed_liquidity.py
+  2. fed/nyfed_reference_rates.py
   3. fed/nyfed_operations.py
-  4. fed/nyfed_reference_rates.py
+  4. fed/fed_liquidity.py
   5. fed/nyfed_settlement_fails.py
   6. fed/liquidity_composite_index.py
   7. generate_desk_report.py

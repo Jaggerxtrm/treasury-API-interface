@@ -174,6 +174,63 @@ def fetch_nyfed_repo_data(start_date=START_DATE):
         print(f"⚠️  Error fetching NY Fed Repo Operations: {e}")
         return pd.Series(), None
 
+
+def fetch_nyfed_reference_rates(start_date=START_DATE):
+    """
+    Fetch reference rates directly from NY Fed API (SOFR, EFFR, TGCR, BGCR, OBFR).
+    
+    This provides same-day rates vs FRED's 2-3 day publication lag.
+    
+    Args:
+        start_date: Start date for data fetch (YYYY-MM-DD)
+    
+    Returns:
+        pd.DataFrame: DataFrame with rate columns indexed by date
+        pd.Timestamp: Last update date
+    """
+    print("Fetching reference rates directly from NY Fed API...")
+    
+    rate_types = {
+        'sofr': 'SOFR_Rate',
+        'effr': 'EFFR_Rate',
+        'tgcr': 'TGCR_Rate',
+        'bgcr': 'BGCR_Rate',
+        'obfr': 'OBFR_Rate'
+    }
+    
+    all_rates = {}
+    last_update = None
+    
+    for rate_type, col_name in rate_types.items():
+        try:
+            df_rate = nyfed_client.fetch_reference_rate(rate_type, num_records=1000)
+            
+            if not df_rate.empty and 'rate' in df_rate.columns:
+                rate_series = df_rate['rate']
+                all_rates[col_name] = rate_series
+                
+                # Track the most recent date
+                rate_last = rate_series.index.max()
+                if last_update is None or rate_last > last_update:
+                    last_update = rate_last
+                    
+        except Exception as e:
+            print(f"  ⚠️  Error fetching {rate_type}: {e}")
+            continue
+    
+    if not all_rates:
+        print("⚠️  No NY Fed reference rates fetched")
+        return pd.DataFrame(), None
+    
+    # Merge all rate series into a DataFrame
+    rates_df = pd.concat(all_rates, axis=1, join='outer').sort_index()
+    
+    print(f"✓ NY Fed reference rates: {len(rates_df)} records, latest: {last_update.strftime('%Y-%m-%d')}")
+    print(f"  Rates fetched: {', '.join(all_rates.keys())}")
+    
+    return rates_df, last_update
+
+
 def fetch_all_data():
     """
     Fetches all required series and merges them into a single DataFrame.
@@ -259,8 +316,9 @@ def fetch_all_data():
     # Apply forward fill only to weekly series (limited to prevent future dates)
     if weekly_columns:
         print(f"Applying forward fill to {len(weekly_columns)} weekly series: {weekly_columns}")
-        # Limit forward fill to max 3 days to handle weekends/holidays without creating future dates
-        df[weekly_columns] = df[weekly_columns].ffill(limit=3)
+        # Limit forward fill to max 6 days to handle Wednesday-to-Wednesday weekly data gaps
+        # FRED weekly series publish on Wednesdays, so 6 days covers Thu-Tue before next update
+        df[weekly_columns] = df[weekly_columns].ffill(limit=6)
 
         # Truncate to last business day (not today if today is weekend/holiday)
         last_bday = pd.Timestamp.today().normalize()
@@ -283,46 +341,72 @@ def fetch_all_data():
     
     # ==========================================================================
     # INTEGRATE NY FED REFERENCE RATES (more timely than FRED)
+    # Strategy: Try CSV first (efficient), fall back to direct API (reliable)
     # ==========================================================================
+    nyfed_rates = None
     nyfed_rates_path = get_output_path("nyfed_reference_rates.csv")
+    
+    # Try loading from CSV first (created by nyfed_reference_rates.py)
     if os.path.exists(nyfed_rates_path):
         try:
             nyfed_rates = pd.read_csv(nyfed_rates_path, index_col=0, parse_dates=True)
-            print(f"Loading NY Fed reference rates: {len(nyfed_rates)} records")
-            
-            # Map NY Fed columns to our column names
-            rate_mapping = {
-                'SOFR_Rate': 'SOFR_Rate',
-                'EFFR_Rate': 'EFFR_Rate',
-                'TGCR_Rate': 'TGCR_Rate',
-                'BGCR_Rate': 'BGCR_Rate',  # Additional rate
-                'OBFR_Rate': 'OBFR_Rate',  # Additional rate
-            }
-            
-            # Update FRED rates with NY Fed data where FRED has NaN
-            for nyfed_col, our_col in rate_mapping.items():
-                if nyfed_col in nyfed_rates.columns:
-                    if our_col in df.columns:
-                        # Fill NaN in FRED data with NY Fed data
-                        mask = df[our_col].isna()
-                        nyfed_reindexed = nyfed_rates.reindex(df.index)[nyfed_col]
-                        df.loc[mask, our_col] = nyfed_reindexed.loc[mask]
-                    else:
-                        # Column doesn't exist, add it from NY Fed
-                        df[our_col] = nyfed_rates.reindex(df.index)[nyfed_col]
-            
-            # Forward fill rates for recent days (max 3 days to cover weekends)
-            rate_cols = [c for c in rate_mapping.values() if c in df.columns]
-            for col in rate_cols:
-                df[col] = df[col].ffill(limit=3)
-            
-            print("✓ NY Fed reference rates integrated (fills FRED gaps + 3-day forward fill)")
-            if not nyfed_rates.empty:
-                series_metadata['NYFED_RATES'] = nyfed_rates.index[-1]
+            print(f"✓ Loaded NY Fed reference rates from CSV: {len(nyfed_rates)} records")
         except Exception as e:
-            print(f"⚠️  Could not load NY Fed rates: {e}")
-    else:
-        print("ℹ️  NY Fed rates file not found - run nyfed_reference_rates.py first for fresher data")
+            print(f"⚠️  Could not load NY Fed rates CSV: {e}")
+            nyfed_rates = None
+    
+    # Fall back to direct API fetch if CSV not available or empty
+    if nyfed_rates is None or nyfed_rates.empty:
+        print("ℹ️  NY Fed rates CSV not available - fetching directly from API...")
+        nyfed_rates, nyfed_last_update = fetch_nyfed_reference_rates(START_DATE)
+        if nyfed_rates is not None and not nyfed_rates.empty:
+            print(f"✓ Fetched NY Fed reference rates via API: {len(nyfed_rates)} records")
+        else:
+            print("⚠️  Could not fetch NY Fed reference rates - rate data may be stale")
+    
+    # Integrate NY Fed rates into main DataFrame
+    if nyfed_rates is not None and not nyfed_rates.empty:
+        # Map NY Fed columns to our column names
+        rate_mapping = {
+            'SOFR_Rate': 'SOFR_Rate',
+            'EFFR_Rate': 'EFFR_Rate',
+            'TGCR_Rate': 'TGCR_Rate',
+            'BGCR_Rate': 'BGCR_Rate',  # Additional rate
+            'OBFR_Rate': 'OBFR_Rate',  # Additional rate
+        }
+        
+        # Update FRED rates with NY Fed data where FRED has NaN
+        for nyfed_col, our_col in rate_mapping.items():
+            if nyfed_col in nyfed_rates.columns:
+                if our_col in df.columns:
+                    # Fill NaN in FRED data with NY Fed data
+                    mask = df[our_col].isna()
+                    nyfed_reindexed = nyfed_rates.reindex(df.index)[nyfed_col]
+                    df.loc[mask, our_col] = nyfed_reindexed.loc[mask]
+                else:
+                    # Column doesn't exist, add it from NY Fed
+                    df[our_col] = nyfed_rates.reindex(df.index)[nyfed_col]
+        
+        # Forward fill rates for recent days (max 3 days to cover weekends)
+        rate_cols = [c for c in rate_mapping.values() if c in df.columns]
+        for col in rate_cols:
+            df[col] = df[col].ffill(limit=3)
+        
+        print("✓ NY Fed reference rates integrated (fills FRED gaps + 3-day forward fill)")
+        series_metadata['NYFED_RATES'] = nyfed_rates.index[-1]
+    
+    # ==========================================================================
+    # FORWARD FILL UST YIELDS (FRED daily series with weekend/holiday gaps)
+    # ==========================================================================
+    ust_yield_cols = ['UST_2Y', 'UST_5Y', 'UST_10Y', 'UST_30Y', 'Curve_10Y2Y', 
+                      'Breakeven_10Y', 'Breakeven_5Y']
+    for col in ust_yield_cols:
+        if col in df.columns:
+            df[col] = df[col].ffill(limit=3)
+    
+    # Also forward fill IORB (policy rate, only changes on FOMC dates)
+    if 'IORB_Rate' in df.columns:
+        df['IORB_Rate'] = df['IORB_Rate'].ffill()  # No limit - policy rate carries until changed
     
     # Ensure START_DATE is datetime for comparison and filter
     start_dt = pd.to_datetime(START_DATE)
@@ -332,71 +416,115 @@ def fetch_all_data():
 
 def calculate_effective_policy_stance(df):
     """
-    Distingue tra QT nominale e QE effettivo.
+    Calculate Fed's effective policy stance through multiple channels.
     
-    QT Nominale: Riduzione Fed_Total_Assets
-    QE Effettivo: Reinvestimento MBS -> T-Bills + REPO attivo
+    This function captures the FULL scope of Fed market intervention:
+    
+    1. BALANCE SHEET FLOW (Quantity):
+       - Net change in Fed_Total_Assets (QT vs QE)
+       
+    2. OPEN MARKET OPERATIONS (Active Intervention):
+       - Repo Operations: Liquidity injection via overnight/term lending
+       - Reverse Repo (RRP): Liquidity absorption (captured separately)
+       - Net Repo: Repo minus RRP = net market support
+       
+    3. PORTFOLIO COMPOSITION (Duration Management):
+       - MBS Runoff: Passive tightening
+       - Treasury purchases: Bills vs Coupons breakdown
+       - MBS→Bills reinvestment: Duration shortening
+       
+    4. INTERNATIONAL SUPPORT:
+       - Swap Lines: Central bank liquidity provision
+    
+    Note: Weekly FRED series (MBS, Bills) are sparse (only Wednesdays).
+    We apply forward fill before diff to ensure valid values exist 5 days ago.
     """
     
-    # 1. Calcola il runoff MBS
+    # ==========================================================================
+    # 1. BALANCE SHEET QUANTITY (QT/QE pure)
+    # ==========================================================================
+    if 'Fed_Total_Assets' in df.columns:
+        assets_filled = df['Fed_Total_Assets'].ffill(limit=6)
+        df['Flow_Nominal_Assets'] = assets_filled.diff(5)  # Pos = QE, Neg = QT
+        df['Net_Balance_Sheet_Flow'] = df['Flow_Nominal_Assets']
+        df['QT_Pace_Nominal'] = -df['Flow_Nominal_Assets']  # Positivo = pace of contraction
+    
+    # ==========================================================================
+    # 2. PORTFOLIO COMPOSITION (MBS, Bills, Treasuries)
+    # ==========================================================================
+    
+    # MBS runoff (passive tightening)
     if 'Fed_MBS_Holdings' in df.columns:
-        df['MBS_Runoff_Weekly'] = -df['Fed_MBS_Holdings'].diff(5)  # Negativo = runoff
+        mbs_filled = df['Fed_MBS_Holdings'].ffill(limit=6)
+        df['MBS_Runoff_Weekly'] = -mbs_filled.diff(5)  # Positive = runoff/tightening
     
-    # 2. Calcola l'acquisto di T-Bills
+    # T-Bill purchases (front-end liquidity)
     if 'Fed_Bill_Holdings' in df.columns:
-        df['Bill_Purchases_Weekly'] = df['Fed_Bill_Holdings'].diff(5)
+        bills_filled = df['Fed_Bill_Holdings'].ffill(limit=6)
+        df['Bill_Purchases_Weekly'] = bills_filled.diff(5)
     
-    # 3. Calcola il reinvestimento (MBS runoff -> T-Bills)
+    # Treasury Notes & Bonds changes (duration)
+    if 'Fed_Notes_Bonds_Holdings' in df.columns:
+        coupons_filled = df['Fed_Notes_Bonds_Holdings'].ffill(limit=6)
+        df['Coupon_Purchases_Weekly'] = coupons_filled.diff(5)
+    
+    # Net Treasury operations (Bills + Coupons)
+    if 'Fed_Treasury_Holdings' in df.columns:
+        treasury_filled = df['Fed_Treasury_Holdings'].ffill(limit=6)
+        df['Net_Treasury_Ops_Weekly'] = treasury_filled.diff(5)
+    
+    # MBS→Bills reinvestment (duration transformation)
     if 'MBS_Runoff_Weekly' in df.columns and 'Bill_Purchases_Weekly' in df.columns:
-        # Se i T-Bills aumentano mentre MBS diminuiscono = reinvestimento
-        # Usiamo numpy where per gestire le condizioni vettoriali
-        # Logica: Reinvestimento = min(abs(MBS_Runoff), Bill_Purchases) se entrambi attivi nella direzione giusta
-        
-        # Condizione: MBS scendono (runoff > 0 perché abbiamo invertito il segno sopra) E Bills salgono
-        # Nota: MBS_Runoff_Weekly è calcolato come -diff, quindi se MBS scendono, diff è neg, -diff è pos.
-        # Quindi cerchiamo MBS_Runoff_Weekly > 0 e Bill_Purchases_Weekly > 0
-        
         df['MBS_to_Bills_Reinvestment'] = np.where(
             (df['MBS_Runoff_Weekly'] > 0) & (df['Bill_Purchases_Weekly'] > 0),
             np.minimum(df['MBS_Runoff_Weekly'], df['Bill_Purchases_Weekly']),
             0
         )
     
-    # 4. Calcola le due dimensioni separate della policy stance
-    #
-    # IMPORTANTE: Non sommare Flow_Nominal_Assets e MBS_to_Bills_Reinvestment!
-    # Questo causa DOUBLE COUNTING perché il reinvestimento è già incluso in Flow_Nominal_Assets.
-    #
-    # Esempio: Se MBS scendono -30B e Bills salgono +20B:
-    #   - Flow_Nominal_Assets = -10B (net QT, già include il +20B di Bills)
-    #   - MBS_to_Bills_Reinvestment = 20B (isolated reinvestment)
-    #   - Sommarli = -10B + 20B = +10B ❌ ERRORE: conta 2 volte i Bills!
-    #
-    # SOLUZIONE: Separare le due dimensioni (Gemini + Cursor consensus):
-
-    if 'Fed_Total_Assets' in df.columns:
-        # 4a. QUANTITÀ: Misura il QT/QE puro in termini di net liquidity
-        df['Flow_Nominal_Assets'] = df['Fed_Total_Assets'].diff(5) # Pos = QE, Neg = QT
-
-        # Alias per backward compatibility e chiarezza semantica
-        df['Net_Balance_Sheet_Flow'] = df['Flow_Nominal_Assets']
-
-        # Legacy metric per calcoli che usano solo la direzione del QT
-        df['QT_Pace_Nominal'] = -df['Flow_Nominal_Assets']  # Positivo = pace of contraction
-
-    if 'MBS_to_Bills_Reinvestment' in df.columns and 'Repo_Ops_Balance_M' in df.columns:
-        # 4b. QUALITÀ: Effetto "shadow QE" da reinvestimento + repo operations
-        # Questo misura il supporto qualitativo al mercato (duration, risk)
-        # NON è net liquidity ma ha effetto bullish per asset prices
-        # Fill NaN with 0 to avoid NaN propagation in sum
-        df['QE_Effective'] = df['MBS_to_Bills_Reinvestment'].fillna(0) + df['Repo_Ops_Balance_M'].fillna(0)
-
-        # Alias semantico per chiarezza
-        df['Qualitative_Easing_Support'] = df['QE_Effective']
-
-    # Net_Policy_Stance REMOVED - was deprecated and caused confusion
-    # Use Net_Balance_Sheet_Flow or Flow_Nominal_Assets for quantity measure
-    # Use Qualitative_Easing_Support or QE_Effective for quality measure
+    # ==========================================================================
+    # 3. OPEN MARKET OPERATIONS (Active Market Support)
+    # ==========================================================================
+    
+    # Net Repo = Repo Operations - RRP (net liquidity injection via OMO)
+    # Positive = net injection, Negative = net drain
+    if 'Repo_Ops_Balance_M' in df.columns and 'RRP_Balance_M' in df.columns:
+        df['Net_Repo_Operations_M'] = df['Repo_Ops_Balance_M'].fillna(0) - df['RRP_Balance_M'].fillna(0)
+    elif 'Repo_Ops_Balance_M' in df.columns:
+        df['Net_Repo_Operations_M'] = df['Repo_Ops_Balance_M'].fillna(0)
+    
+    # ==========================================================================
+    # 4. INTERNATIONAL SUPPORT (Swap Lines)
+    # ==========================================================================
+    if 'Swap_Lines' in df.columns:
+        df['Swap_Lines_Active'] = df['Swap_Lines'].fillna(0)
+    
+    # ==========================================================================
+    # 5. COMPREHENSIVE FED MARKET INTERVENTION METRICS
+    # ==========================================================================
+    
+    # Fed Active Support = Repo Operations + Swap Lines
+    # This captures ACTIVE intervention, not passive balance sheet changes
+    repo_ops = df['Repo_Ops_Balance_M'].fillna(0) if 'Repo_Ops_Balance_M' in df.columns else 0
+    swap_lines = df['Swap_Lines'].fillna(0) if 'Swap_Lines' in df.columns else 0
+    
+    df['Fed_Active_Support_M'] = repo_ops + swap_lines
+    
+    # Total Market Intervention = Active Support + Duration Management
+    mbs_reinvest = df['MBS_to_Bills_Reinvestment'].fillna(0) if 'MBS_to_Bills_Reinvestment' in df.columns else 0
+    df['Fed_Total_Intervention_M'] = df['Fed_Active_Support_M'] + mbs_reinvest
+    
+    # Legacy aliases for backward compatibility
+    df['QE_Effective'] = df['Fed_Total_Intervention_M']
+    df['Qualitative_Easing_Support'] = df['Fed_Total_Intervention_M']
+    
+    # ==========================================================================
+    # 6. INTERVENTION BREAKDOWN FOR REPORTING
+    # ==========================================================================
+    
+    # Component breakdown (for detailed reporting)
+    df['Intervention_Repo_Ops'] = repo_ops
+    df['Intervention_Swap_Lines'] = swap_lines
+    df['Intervention_Duration_Mgmt'] = mbs_reinvest
 
     return df
 
@@ -552,14 +680,18 @@ def calculate_metrics(df):
         
     # 4. QT Pace (Weekly Change in Assets)
     # Resample to weekly to get a smoother trend or just take 5-day diff
+    # Apply forward fill (limit=6) before diff to handle Wednesday-only weekly data
     if 'Fed_Total_Assets' in df.columns:
-        df['QT_Pace_Assets_Weekly'] = df['Fed_Total_Assets'].diff(5) # 5 business days approx 1 week
+        assets_filled = df['Fed_Total_Assets'].ffill(limit=6)
+        df['QT_Pace_Assets_Weekly'] = assets_filled.diff(5)  # 5 business days approx 1 week
         
     if 'Fed_Treasury_Holdings' in df.columns:
-        df['QT_Pace_Treasury_Weekly'] = df['Fed_Treasury_Holdings'].diff(5)
+        treasury_filled = df['Fed_Treasury_Holdings'].ffill(limit=6)
+        df['QT_Pace_Treasury_Weekly'] = treasury_filled.diff(5)
         
     if 'Fed_Bill_Holdings' in df.columns:
-        df['Bill_Buying_Pace_Weekly'] = df['Fed_Bill_Holdings'].diff(5)
+        bills_filled = df['Fed_Bill_Holdings'].ffill(limit=6)
+        df['Bill_Buying_Pace_Weekly'] = bills_filled.diff(5)
         
     # Derive Coupons (Notes + Bonds) from combined series
     if 'Fed_Treasury_Holdings' in df.columns and 'Fed_Bill_Holdings' in df.columns and 'Fed_Notes_Bonds_Holdings' in df.columns:
@@ -976,48 +1108,53 @@ def detect_spread_spikes(df, spread_col='Spread_SOFR_IORB', threshold_std=2.0, a
 def calculate_stress_index(df):
     """
     Calculate composite stress index (0-100) based on multiple factors.
-    Fixed version: Proper validation and clamping of components to prevent invalid values.
+    
+    Components (weighted average):
+    1. SOFR-IORB Spread (20%) - Money market stress
+    2. EFFR-IORB Spread (10%) - Fed funds stress
+    3. Spread Volatility (15%) - Rate instability
+    4. RRP Usage (15%) - Liquidity buffer depletion
+    5. Repo Ops Usage (15%) - Active liquidity demand
+    6. Swap Lines (10%) - International stress signal
+    7. Net Repo (Repo-RRP) (15%) - Net Fed intervention
+    
+    Fixed version: Proper validation and clamping of components.
     """
     if df.empty:
         return {'stress_index': 0, 'stress_level': 'N/A'}
     
     last_row = df.iloc[-1]
-    stress_components = []
+    stress_components = {}
     
     # Component 1: SOFR-IORB Spread (0-20 bps = 0-100 scale)
     if 'Spread_SOFR_IORB' in df.columns and pd.notna(last_row['Spread_SOFR_IORB']):
         sofr_spread = last_row['Spread_SOFR_IORB']
-        # Clamp to reasonable range first (0-20 bps max)
         sofr_spread = max(0, min(sofr_spread, 0.20))
-        sofr_stress = min((sofr_spread / 0.20) * 100, 100)  # 20bps = 100
-        stress_components.append(sofr_stress)
+        sofr_stress = min((sofr_spread / 0.20) * 100, 100)
+        stress_components['SOFR_Spread'] = (sofr_stress, 0.20)
     else:
-        stress_components.append(0)
+        stress_components['SOFR_Spread'] = (0, 0.20)
     
     # Component 2: EFFR-IORB Spread (0-15 bps = 0-100 scale)
     if 'Spread_EFFR_IORB' in df.columns and pd.notna(last_row['Spread_EFFR_IORB']):
         effr_spread = last_row['Spread_EFFR_IORB']
-        # EFFR should be close to IORB, so negative spreads are usually errors
-        # Clamp to reasonable range (-5 to +15 bps)
         effr_spread = max(-0.05, min(effr_spread, 0.15))
-        # Only positive spreads contribute to stress
         if effr_spread > 0:
-            effr_stress = min((effr_spread / 0.15) * 100, 100)  # 15bps = 100
+            effr_stress = min((effr_spread / 0.15) * 100, 100)
         else:
-            effr_stress = 0  # Normal monetary policy transmission
-        stress_components.append(effr_stress)
+            effr_stress = 0
+        stress_components['EFFR_Spread'] = (effr_stress, 0.10)
     else:
-        stress_components.append(0)
+        stress_components['EFFR_Spread'] = (0, 0.10)
     
     # Component 3: Spread Volatility (5-day std)
     if 'SOFR_Vol_5D' in df.columns and pd.notna(last_row['SOFR_Vol_5D']):
         vol = last_row['SOFR_Vol_5D']
-        # Clamp volatility to reasonable range (0-0.10% std)
         vol = max(0, min(vol, 0.10))
-        vol_stress = min((vol / 0.10) * 100, 100)  # 0.10% std = 100
-        stress_components.append(vol_stress)
+        vol_stress = min((vol / 0.10) * 100, 100)
+        stress_components['Volatility'] = (vol_stress, 0.15)
     else:
-        stress_components.append(0)
+        stress_components['Volatility'] = (0, 0.15)
     
     # Component 4: RRP Usage (inverted: low RRP = high stress)
     if ('RRP_Balance' in df.columns and 'MA20_RRP' in df.columns and 
@@ -1026,44 +1163,54 @@ def calculate_stress_index(df):
         rrp_ma = last_row['MA20_RRP']
         if rrp_ma > 0:
             rrp_ratio = rrp_current / rrp_ma
-            # High RRP = low stress (liquidity being parked)
-            # Low RRP = potential stress (liquidity tight)
-            rrp_stress = max(0, (1 - rrp_ratio) * 100)  # Inverted: lower RRP = higher stress
-            rrp_stress = min(100, rrp_stress)  # Clamp to 0-100
+            rrp_stress = max(0, min(100, (1 - rrp_ratio) * 100))
         else:
             rrp_stress = 0
-        stress_components.append(rrp_stress)
+        stress_components['RRP_Usage'] = (rrp_stress, 0.15)
     else:
-        stress_components.append(0)
+        stress_components['RRP_Usage'] = (0, 0.15)
     
     # Component 5: Repo Ops Usage (high usage = stress)
-    # Repo_Ops_Balance_M is in Millions
     if 'Repo_Ops_Balance_M' in df.columns and pd.notna(last_row['Repo_Ops_Balance_M']):
-        repo_usage = last_row['Repo_Ops_Balance_M']
-        # High repo usage = stress (banks need liquidity)
-        repo_usage = max(0, repo_usage)  # No negative repo usage
-        repo_stress = min((repo_usage / 100000) * 100, 100)  # 100B (100,000M) = 100
-        stress_components.append(repo_stress)
+        repo_usage = max(0, last_row['Repo_Ops_Balance_M'])
+        repo_stress = min((repo_usage / 100000) * 100, 100)  # 100B = 100
+        stress_components['Repo_Ops'] = (repo_stress, 0.15)
     else:
-        stress_components.append(0)
+        stress_components['Repo_Ops'] = (0, 0.15)
     
-    # Validate all components are numeric and in range 0-100
+    # Component 6: Swap Lines (any activation = stress signal)
+    if 'Swap_Lines' in df.columns and pd.notna(last_row['Swap_Lines']):
+        swap_lines = max(0, last_row['Swap_Lines'])
+        # Swap lines > $1B = significant stress, > $10B = critical
+        swap_stress = min((swap_lines / 10000) * 100, 100)  # 10B = 100
+        stress_components['Swap_Lines'] = (swap_stress, 0.10)
+    else:
+        stress_components['Swap_Lines'] = (0, 0.10)
+    
+    # Component 7: Net Repo (Repo - RRP): High net injection = stress
+    if 'Net_Repo_Operations_M' in df.columns and pd.notna(last_row['Net_Repo_Operations_M']):
+        net_repo = last_row['Net_Repo_Operations_M']
+        # Positive net repo = Fed injecting liquidity = stress
+        net_repo_stress = max(0, min((net_repo / 50000) * 100, 100))  # 50B net = 100
+        stress_components['Net_Repo'] = (net_repo_stress, 0.15)
+    else:
+        stress_components['Net_Repo'] = (0, 0.15)
+    
+    # Calculate weighted stress index
     validated_components = []
-    for i, comp in enumerate(stress_components):
-        if pd.isna(comp) or not np.isfinite(comp):
-            validated_components.append(0)
-        else:
-            validated_components.append(max(0, min(100, comp)))
+    component_details = {}
+    for name, (value, weight) in stress_components.items():
+        if pd.isna(value) or not np.isfinite(value):
+            value = 0
+        value = max(0, min(100, value))
+        validated_components.append((value, weight))
+        component_details[name] = int(value)
     
-    stress_components = validated_components
-    
-    weights = [0.30, 0.20, 0.15, 0.20, 0.15]  # Fixed weights
-    
-    # Calculate weighted average only if we have valid components
-    if len(stress_components) == len(weights) and len(stress_components) > 0:
-        # All components are now validated and clamped
-        stress_index = sum(s * w for s, w in zip(stress_components, weights))
-        stress_index = max(0, min(100, stress_index))  # Final clamp to 0-100
+    # Calculate weighted average using embedded weights
+    total_weight = sum(w for _, w in validated_components)
+    if total_weight > 0 and len(validated_components) > 0:
+        stress_index = sum(v * w for v, w in validated_components) / total_weight * 100
+        stress_index = max(0, min(100, stress_index))
     else:
         stress_index = 0
     
@@ -1080,12 +1227,15 @@ def calculate_stress_index(df):
     return {
         'stress_index': stress_index,
         'stress_level': stress_level,
+        'component_details': component_details,
         'components': {
-            'sofr_spread': stress_components[0] if len(stress_components) > 0 else 0,
-            'effr_spread': stress_components[1] if len(stress_components) > 1 else 0,
-            'volatility': stress_components[2] if len(stress_components) > 2 else 0,
-            'rrp_usage': stress_components[3] if len(stress_components) > 3 else 0,
-            'repo_usage': stress_components[4] if len(stress_components) > 4 else 0
+            'sofr_spread': component_details.get('SOFR_Spread', 0),
+            'effr_spread': component_details.get('EFFR_Spread', 0),
+            'volatility': component_details.get('Volatility', 0),
+            'rrp_usage': component_details.get('RRP_Usage', 0),
+            'repo_ops': component_details.get('Repo_Ops', 0),
+            'swap_lines': component_details.get('Swap_Lines', 0),
+            'net_repo': component_details.get('Net_Repo', 0)
         }
     }
 
@@ -1576,12 +1726,14 @@ def generate_report(df, series_metadata=None):
         print(f"")
         
         components = stress_metrics.get('components', {})
-        print("Components:")
-        print(f"  SOFR Spread:           {components.get('sofr_spread', 0):.0f}/100")
-        print(f"  EFFR Spread:           {components.get('effr_spread', 0):.0f}/100")
-        print(f"  Volatility:            {components.get('volatility', 0):.0f}/100")
-        print(f"  RRP Usage:             {components.get('rrp_usage', 0):.0f}/100")
-        print(f"  Repo Usage:            {components.get('repo_usage', 0):.0f}/100")
+        print("Components (weighted):")
+        print(f"  SOFR Spread (20%):     {components.get('sofr_spread', 0):.0f}/100")
+        print(f"  EFFR Spread (10%):     {components.get('effr_spread', 0):.0f}/100")
+        print(f"  Volatility (15%):      {components.get('volatility', 0):.0f}/100")
+        print(f"  RRP Usage (15%):       {components.get('rrp_usage', 0):.0f}/100")
+        print(f"  Repo Ops (15%):        {components.get('repo_ops', 0):.0f}/100")
+        print(f"  Swap Lines (10%):      {components.get('swap_lines', 0):.0f}/100")
+        print(f"  Net Repo (15%):        {components.get('net_repo', 0):.0f}/100")
     
     # ===== CURRENT SNAPSHOT =====
     print("\n" + "─"*60)
@@ -1669,80 +1821,106 @@ def generate_report(df, series_metadata=None):
     if 'Fed_Coupon_Holdings' in df.columns:
         print(f"  > Coupons:       ${last_row['Fed_Coupon_Holdings']:,.0f} M")
 
-    # ===== EFFECTIVE POLICY STANCE (NEW SECTION) =====
+    # ===== EFFECTIVE POLICY STANCE (COMPREHENSIVE VIEW) =====
     print("\n" + "─"*60)
-    print("EFFECTIVE POLICY STANCE (QT/QE DECOMPOSITION)")
+    print("FED MARKET INTERVENTION (Comprehensive View)")
     print("─"*60)
-    print("\nDistinzione tra QUANTITÀ (balance sheet) e QUALITÀ (shadow QE):")
 
-    # 1. QUANTITÀ: Net Balance Sheet Flow
+    # 1. BALANCE SHEET FLOW (Quantity)
     if 'Net_Balance_Sheet_Flow' in df.columns or 'Flow_Nominal_Assets' in df.columns:
         flow_col = 'Net_Balance_Sheet_Flow' if 'Net_Balance_Sheet_Flow' in df.columns else 'Flow_Nominal_Assets'
-        flow_val = last_row[flow_col]
+        flow_val = last_row[flow_col] if pd.notna(last_row[flow_col]) else 0
         flow_direction = "QE (Injection)" if flow_val > 0 else "QT (Drain)" if flow_val < 0 else "Neutral"
         flow_icon = "💰" if flow_val > 0 else "📉" if flow_val < 0 else "➡️"
 
-        print(f"\n📊 QUANTITÀ - Net Balance Sheet Flow:")
+        print(f"\n📊 1. BALANCE SHEET (Quantity):")
         print(f"   Weekly Change:        {flow_icon} ${flow_val:,.0f} M")
         print(f"   Direction:            {flow_direction}")
-        print(f"   (Misura QT/QE puro in termini di net liquidity)")
 
-    # 2. Open Market Operations Detail
-    if 'MBS_Runoff_Weekly' in df.columns and 'Bill_Purchases_Weekly' in df.columns:
-        mbs_runoff = last_row.get('MBS_Runoff_Weekly', 0)
-        bill_purchases = last_row.get('Bill_Purchases_Weekly', 0)
+    # 2. ACTIVE MARKET INTERVENTION (Repo + Swap Lines)
+    print(f"\n🏦 2. ACTIVE MARKET INTERVENTION:")
+    
+    repo_ops = last_row.get('Repo_Ops_Balance_M', 0)
+    repo_ops = repo_ops if pd.notna(repo_ops) else 0
+    
+    rrp_balance = last_row.get('RRP_Balance_M', 0)
+    rrp_balance = rrp_balance if pd.notna(rrp_balance) else 0
+    
+    net_repo = last_row.get('Net_Repo_Operations_M', repo_ops - rrp_balance)
+    net_repo = net_repo if pd.notna(net_repo) else 0
+    
+    swap_lines = last_row.get('Swap_Lines', 0)
+    swap_lines = swap_lines if pd.notna(swap_lines) else 0
+    
+    print(f"   Repo Operations:      ${repo_ops:,.0f} M (liquidity injection)")
+    print(f"   RRP (drain):          ${rrp_balance:,.0f} M")
+    print(f"   Net Repo Effect:      ${net_repo:,.0f} M")
+    if swap_lines > 0:
+        print(f"   Swap Lines:           ${swap_lines:,.0f} M (international)")
+    
+    # 3. PORTFOLIO OPERATIONS (Duration Management)
+    print(f"\n📑 3. PORTFOLIO OPERATIONS (Weekly):")
+    
+    mbs_runoff = last_row.get('MBS_Runoff_Weekly', 0)
+    mbs_runoff = mbs_runoff if pd.notna(mbs_runoff) else 0
+    
+    bill_purchases = last_row.get('Bill_Purchases_Weekly', 0)
+    bill_purchases = bill_purchases if pd.notna(bill_purchases) else 0
+    
+    coupon_purchases = last_row.get('Coupon_Purchases_Weekly', 0)
+    coupon_purchases = coupon_purchases if pd.notna(coupon_purchases) else 0
+    
+    net_treasury = last_row.get('Net_Treasury_Ops_Weekly', 0)
+    net_treasury = net_treasury if pd.notna(net_treasury) else 0
+    
+    print(f"   MBS Runoff:           ${mbs_runoff:,.0f} M")
+    print(f"   T-Bill Purchases:     ${bill_purchases:,.0f} M")
+    if coupon_purchases != 0:
+        print(f"   Coupon Purchases:     ${coupon_purchases:,.0f} M")
+    print(f"   Net Treasury Ops:     ${net_treasury:,.0f} M")
+    
+    if 'MBS_to_Bills_Reinvestment' in df.columns:
+        reinvestment = last_row['MBS_to_Bills_Reinvestment']
+        reinvestment = reinvestment if pd.notna(reinvestment) else 0
+        if reinvestment > 0:
+            print(f"   MBS→Bills Swap:       ${reinvestment:,.0f} M (duration shortening)")
 
-        print(f"\n🔄 Operazioni Open Market (Weekly):")
-        print(f"   MBS Runoff:           ${mbs_runoff:,.0f} M")
-        print(f"   Bill Purchases:       ${bill_purchases:,.0f} M")
+    # 4. TOTAL FED MARKET SUPPORT
+    fed_active = last_row.get('Fed_Active_Support_M', repo_ops + swap_lines)
+    fed_active = fed_active if pd.notna(fed_active) else 0
+    
+    fed_total = last_row.get('Fed_Total_Intervention_M', 0)
+    fed_total = fed_total if pd.notna(fed_total) else 0
+    
+    print(f"\n📈 4. TOTAL FED SUPPORT:")
+    print(f"   Active Support:       ${fed_active:,.0f} M")
+    print(f"     (Repo Ops + Swap Lines)")
+    print(f"   Total Intervention:   ${fed_total:,.0f} M")
+    print(f"     (Active + Duration Mgmt)")
 
-        if 'MBS_to_Bills_Reinvestment' in df.columns:
-            reinvestment = last_row['MBS_to_Bills_Reinvestment']
-            if reinvestment > 0:
-                print(f"   > Reinvestimento:     ${reinvestment:,.0f} M (MBS→Bills)")
-            else:
-                print(f"   > Reinvestimento:     $0 M (no MBS→Bills swap)")
-
-    # 3. QUALITÀ: Shadow QE Support
-    if 'Qualitative_Easing_Support' in df.columns or 'QE_Effective' in df.columns:
-        qual_col = 'Qualitative_Easing_Support' if 'Qualitative_Easing_Support' in df.columns else 'QE_Effective'
-        qual_val = last_row[qual_col]
-
-        print(f"\n🎯 QUALITÀ - Shadow QE Support:")
-        print(f"   Total Support:        ${qual_val:,.0f} M")
-
-        # Breakdown if available
-        reinvest = last_row.get('MBS_to_Bills_Reinvestment', 0)
-        repo = last_row.get('Repo_Ops_Balance_M', 0)  # Now in Millions
-        if reinvest > 0 or repo > 0:
-            print(f"   Components:")
-            if reinvest > 0:
-                print(f"     • Reinvestimento:   ${reinvest:,.0f} M")
-            if repo > 0:
-                print(f"     • Repo Operations:  ${repo:,.0f} M")
-        print(f"   (Supporto qualitativo: duration, risk appetite)")
-        print(f"   (NON è net liquidity ma ha effetto bullish)")
-
-    # 4. Summary
-    if ('Net_Balance_Sheet_Flow' in df.columns or 'Flow_Nominal_Assets' in df.columns) and \
-       ('Qualitative_Easing_Support' in df.columns or 'QE_Effective' in df.columns):
-        flow_val = last_row.get('Net_Balance_Sheet_Flow', last_row.get('Flow_Nominal_Assets', 0))
-        qual_val = last_row.get('Qualitative_Easing_Support', last_row.get('QE_Effective', 0))
-
-        print(f"\n💡 Interpretazione:")
-        if flow_val < -50:  # Strong QT
-            if qual_val > 20:
-                print(f"   • QT aggressivo (${flow_val:,.0f}M) parzialmente")
-                print(f"     compensato da shadow QE (${qual_val:,.0f}M)")
-            else:
-                print(f"   • QT aggressivo senza compensazione significativa")
-        elif flow_val > 50:  # Strong QE
-            print(f"   • QE attivo: sia quantità che qualità espansive")
-        else:  # Neutral quantity
-            if qual_val > 20:
-                print(f"   • Balance sheet stabile ma supporto qualitativo attivo")
-            else:
-                print(f"   • Policy stance sostanzialmente neutrale")
+    # 5. Summary Interpretation
+    flow_val = last_row.get('Net_Balance_Sheet_Flow', last_row.get('Flow_Nominal_Assets', 0))
+    flow_val = flow_val if pd.notna(flow_val) else 0
+    
+    print(f"\n💡 Interpretation:")
+    
+    # Determine regime
+    if flow_val < -5000:  # Strong QT (>$5B/week drain)
+        if fed_active > 10000:  # Active support >$10B
+            print(f"   • QT in progress but offset by active market support")
+            print(f"   • Net effect: Stealth accommodation via repo/swaps")
+        else:
+            print(f"   • Pure QT: Balance sheet contracting, limited support")
+    elif flow_val > 5000:  # Strong QE
+        print(f"   • Active QE: Balance sheet expanding")
+    else:  # Neutral balance sheet
+        if fed_active > 20000:  # Significant active support
+            print(f"   • Shadow QE: Stable balance sheet but active market support")
+            print(f"   • Repo operations providing liquidity backstop")
+        elif repo_ops > 10000:
+            print(f"   • Neutral stance with repo facility usage")
+        else:
+            print(f"   • Neutral policy stance")
 
     print("\n--- INFLATION & STRESS INDICATORS ---")
     if 'Breakeven_10Y' in df.columns:

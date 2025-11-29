@@ -379,3 +379,68 @@ def generate_smoothed_yoy_chart(df: pd.DataFrame, category_col: str, title: str)
     fig.update_yaxes(title_text="YoY Change (%)")
     
     return pio.to_html(fig, full_html=False, include_plotlyjs=False)
+
+def generate_generic_chart(df: pd.DataFrame, columns: list, title: str, y_axis_title: str = "") -> str:
+    """
+    Generate a generic line chart for a list of columns.
+    """
+    if df.empty:
+        return f"<div>No data available for {title}</div>"
+        
+    fig = go.Figure()
+    
+    for col in columns:
+        if col in df.columns:
+            fig.add_trace(go.Scatter(
+                x=df.index, 
+                y=df[col], 
+                name=col.replace('_', ' '),
+                mode='lines',
+                line=dict(width=1.5)
+            ))
+            
+    fig.update_layout(
+        title=title,
+        height=400,
+        margin=dict(l=20, r=20, t=40, b=20),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+        yaxis_title=y_axis_title
+    )
+    
+    return pio.to_html(fig, full_html=False, include_plotlyjs=False)
+
+def generate_generic_table(df: pd.DataFrame, columns: list, title: str) -> str:
+    """
+    Generate a generic HTML table for a list of columns (last 30 days).
+    """
+    if df.empty:
+        return f"<div>No data available for {title}</div>"
+        
+    # Filter for existing columns
+    valid_cols = [c for c in columns if c in df.columns]
+    
+    if not valid_cols:
+        return f"<div>No valid columns found for {title}</div>"
+        
+    # Get last 30 records
+    recent_df = df[valid_cols].tail(30).sort_index(ascending=False)
+    
+    # Format numbers
+    # We'll try to be smart: if it looks like a large number, format with commas
+    # if it looks like a rate (small float), format with 2 decimals
+    
+    formatted_df = recent_df.copy()
+    for col in valid_cols:
+        # Check first non-null value to determine type
+        sample = recent_df[col].dropna().iloc[0] if not recent_df[col].dropna().empty else 0
+        
+        if isinstance(sample, (int, float)):
+            if abs(sample) > 1000: # Likely a nominal amount
+                formatted_df[col] = formatted_df[col].apply(lambda x: f"{x:,.0f}" if pd.notnull(x) else "-")
+            else: # Likely a rate or index
+                formatted_df[col] = formatted_df[col].apply(lambda x: f"{x:.2f}" if pd.notnull(x) else "-")
+                
+    # Generate HTML
+    html = f"<h3>{title}</h3>"
+    html += formatted_df.to_html(classes="table table-striped table-hover table-sm", border=0)
+    return html
