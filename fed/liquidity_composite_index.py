@@ -54,14 +54,14 @@ FISCAL_WEIGHTS = {
 
 MONETARY_WEIGHTS = {
     "net_liquidity": 0.30,                    # Primary driver
-    "net_balance_sheet_flow": 0.15,          # QT/QE puro (quantità) - era parte di policy_stance
-    "qualitative_easing_support": 0.10,      # Shadow QE (reinvestimento + repo) - era parte di policy_stance
+    "net_balance_sheet_flow": 0.15,          # QT/QE puro (quantità)
+    "qualitative_easing_support": 0.25,      # Shadow QE (reinvestimento + repo) - includes repo operations
     "rrp_change": 0.20,                      # RRP drawdown effect
-    "repo_operations": 0.15,                 # Active repo operations (ora duplicato con qualitative_easing_support, deprecato)
     "sofr_stress": 0.10,                     # Money market stress indicator
 }
 
-# Legacy compatibility (0.25 = 0.15 + 0.10)
+# Legacy compatibility: policy_stance = net_balance_sheet_flow + qualitative_easing_support
+# (0.40 = 0.15 + 0.25)
 MONETARY_WEIGHTS["policy_stance"] = (MONETARY_WEIGHTS["net_balance_sheet_flow"] +
                                       MONETARY_WEIGHTS["qualitative_easing_support"])
 
@@ -278,16 +278,8 @@ def calculate_monetary_component(df_fed):
         rrp_release = -df_fed['RRP_Change']  # Decline in RRP = positive
         rrp_norm = normalize_series(rrp_release, method='zscore')
         monetary_index += rrp_norm * MONETARY_WEIGHTS['rrp_change']
-        
-    # 4. Repo Operations (Active Injection) - use _M version in Millions
-    if 'Repo_Ops_Balance_M' in df_fed.columns:
-        repo_ops_norm = normalize_series(df_fed['Repo_Ops_Balance_M'], method='zscore')
-    elif 'Repo_Ops_Balance' in df_fed.columns:
-        # Fallback: assume original is in Billions, convert
-        repo_ops_norm = normalize_series(df_fed['Repo_Ops_Balance'] * 1000, method='zscore')
-        monetary_index += repo_ops_norm * MONETARY_WEIGHTS['repo_operations']
 
-    # 5. SOFR Stress (wider spread = tighter, negative for liquidity)
+    # 4. SOFR Stress (wider spread = tighter, negative for liquidity)
     if 'Spread_SOFR_IORB' in df_fed.columns:
         sofr_stress = -df_fed['Spread_SOFR_IORB']  # Higher spread = stress
         sofr_norm = normalize_series(sofr_stress, method='zscore')
