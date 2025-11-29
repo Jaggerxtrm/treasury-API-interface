@@ -46,6 +46,7 @@ def generate_html_table(df: pd.DataFrame, title: str) -> str:
             
     # Format date index
     table_df.index = table_df.index.strftime('%Y-%m-%d')
+    table_df.index.name = 'Date'
     
     return table_df.to_html(classes="table table-striped table-hover", border=0)
 
@@ -61,7 +62,14 @@ def generate_html_report():
     print("Starting HTML Report Generation...")
     
     # 1. Load Data from DuckDB
+    # 1. Load Data from DuckDB
     fiscal_df, fed_df, ofr_df, metadata = load_all_data()
+    
+    # GLOBAL FIX: Remove index names to prevent "record_date" artifact in charts
+    fiscal_df.index.name = None
+    fed_df.index.name = None
+    if not ofr_df.empty:
+        ofr_df.index.name = None
     
     # 2. Extract Metrics (for summary boxes)
     from generate_desk_report import calculate_integrated_flows

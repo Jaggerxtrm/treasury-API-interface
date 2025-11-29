@@ -11,6 +11,9 @@ def generate_net_liquidity_chart(df: pd.DataFrame) -> str:
     if df.empty:
         return "<div>No data available for Net Liquidity</div>"
         
+    # Remove index name to prevent artifacts
+    df.index.name = None
+        
     fig = make_subplots(specs=[[{"secondary_y": True}]])
     
     # Net Liquidity Area
@@ -42,7 +45,8 @@ def generate_net_liquidity_chart(df: pd.DataFrame) -> str:
         title="Fed Net Liquidity vs Risk Assets",
         height=450,
         margin=dict(l=20, r=20, t=40, b=20),
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+        xaxis_title=""
     )
     
     fig.update_yaxes(title_text="Net Liquidity ($T)", secondary_y=False)
@@ -54,6 +58,9 @@ def generate_fiscal_impulse_chart(df: pd.DataFrame) -> str:
     """Generate Fiscal Impulse chart."""
     if df.empty:
         return "<div>No data available for Fiscal Impulse</div>"
+        
+    # Remove index name to prevent artifacts
+    df.index.name = None
         
     fig = go.Figure()
     
@@ -83,7 +90,8 @@ def generate_fiscal_impulse_chart(df: pd.DataFrame) -> str:
         title="Fiscal Impulse (Net Spending - Taxes)",
         height=400,
         margin=dict(l=20, r=20, t=40, b=20),
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+        xaxis_title=""
     )
     
     fig.update_yaxes(title_text="Billions USD")
@@ -94,6 +102,9 @@ def generate_stress_chart(df: pd.DataFrame) -> str:
     """Generate Market Stress Index chart."""
     if df.empty or 'Stress_Index' not in df.columns:
         return "<div>No data available for Stress Index</div>"
+        
+    # Remove index name to prevent artifacts
+    df.index.name = None
         
     fig = go.Figure()
     
@@ -116,7 +127,8 @@ def generate_stress_chart(df: pd.DataFrame) -> str:
         title="Liquidity Stress Index (0-100)",
         height=400,
         margin=dict(l=20, r=20, t=40, b=20),
-        yaxis=dict(range=[0, 100])
+        yaxis=dict(range=[0, 100]),
+        xaxis_title=""
     )
     
     return pio.to_html(fig, full_html=False, include_plotlyjs=False)
@@ -125,6 +137,9 @@ def generate_treasury_fails_chart(df: pd.DataFrame) -> str:
     """Generate Treasury Settlement Fails chart."""
     if df.empty:
         return "<div>No data available for Treasury Fails</div>"
+        
+    # Remove index name to prevent artifacts
+    df.index.name = None
         
     # Check if we have fails data
     fails_cols = [c for c in df.columns if 'Fails' in c]
@@ -151,7 +166,8 @@ def generate_treasury_fails_chart(df: pd.DataFrame) -> str:
         height=400,
         margin=dict(l=20, r=20, t=40, b=20),
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-        yaxis_title="Fails ($ Millions)"
+        yaxis_title="Fails ($ Millions)",
+        xaxis_title=""
     )
     
     return pio.to_html(fig, full_html=False, include_plotlyjs=False)
@@ -160,6 +176,9 @@ def generate_rates_chart(df: pd.DataFrame) -> str:
     """Generate Key Money Market Rates chart."""
     if df.empty:
         return "<div>No data available for Rates</div>"
+        
+    # Remove index name to prevent artifacts
+    df.index.name = None
         
     fig = go.Figure()
     
@@ -179,7 +198,8 @@ def generate_rates_chart(df: pd.DataFrame) -> str:
         title="Key Money Market Rates",
         height=400,
         margin=dict(l=20, r=20, t=40, b=20),
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+        xaxis_title=""
     )
     
     fig.update_yaxes(title_text="Rate (%)")
@@ -190,6 +210,9 @@ def generate_qt_pace_chart(df: pd.DataFrame) -> str:
     """Generate QT Pace (Fed Assets Change) chart."""
     if df.empty or 'Fed_Total_Assets' not in df.columns:
         return "<div>No data available for QT Pace</div>"
+        
+    # Remove index name to prevent artifacts
+    df.index.name = None
         
     # Calculate weekly change if not present
     if 'QT_Pace_Assets_Weekly' not in df.columns:
@@ -209,7 +232,8 @@ def generate_qt_pace_chart(df: pd.DataFrame) -> str:
     fig.update_layout(
         title="Fed Balance Sheet Change (QT Pace)",
         height=400,
-        margin=dict(l=20, r=20, t=40, b=20)
+        margin=dict(l=20, r=20, t=40, b=20),
+        xaxis_title=""
     )
     
     fig.update_yaxes(title_text="Billions USD")
@@ -220,6 +244,9 @@ def generate_ofr_stress_chart(df: pd.DataFrame) -> str:
     """Generate OFR Financial Stress Index chart."""
     if df.empty:
         return "<div>No OFR Stress data available</div>"
+        
+    # Remove index name to prevent artifacts
+    df.index.name = None
         
     fig = go.Figure()
     
@@ -246,7 +273,8 @@ def generate_ofr_stress_chart(df: pd.DataFrame) -> str:
         height=400,
         margin=dict(l=20, r=20, t=40, b=20),
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-        yaxis_title="Stress Level (Index)"
+        yaxis_title="Stress Level (Index)",
+        xaxis_title=""
     )
     
     return pio.to_html(fig, full_html=False, include_plotlyjs=False)
@@ -272,6 +300,7 @@ def generate_cumulative_yoy_fiscal_flow_chart(df: pd.DataFrame = None) -> str:
         
     # Calculate Fiscal Year
     df = df.copy()
+    df.index.name = None
     df['Fiscal_Year'] = df.index.map(lambda x: x.year + 1 if x.month >= 10 else x.year)
     
     # Get current and previous fiscal years
@@ -336,6 +365,9 @@ def generate_smoothed_yoy_chart(df: pd.DataFrame, category_col: str, title: str)
     if df is None or df.empty or category_col not in df.columns:
         return f"<div>No data available for {title}</div>"
         
+    # Remove index name to prevent artifacts
+    df.index.name = None
+        
     # Calculate YoY Change
     # We need to resample to ensure daily frequency or handle missing dates
     # For simplicity, we'll use a 252-day lag (approx 1 trading year) on the raw data
@@ -373,7 +405,8 @@ def generate_smoothed_yoy_chart(df: pd.DataFrame, category_col: str, title: str)
     fig.update_layout(
         title=title,
         height=400,
-        margin=dict(l=20, r=20, t=40, b=20)
+        margin=dict(l=20, r=20, t=40, b=20),
+        xaxis_title=""
     )
     
     fig.update_yaxes(title_text="YoY Change (%)")
@@ -386,6 +419,9 @@ def generate_generic_chart(df: pd.DataFrame, columns: list, title: str, y_axis_t
     """
     if df.empty:
         return f"<div>No data available for {title}</div>"
+        
+    # Remove index name to prevent artifacts
+    df.index.name = None
         
     fig = go.Figure()
     
@@ -404,7 +440,8 @@ def generate_generic_chart(df: pd.DataFrame, columns: list, title: str, y_axis_t
         height=400,
         margin=dict(l=20, r=20, t=40, b=20),
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-        yaxis_title=y_axis_title
+        yaxis_title=y_axis_title,
+        xaxis_title=""
     )
     
     return pio.to_html(fig, full_html=False, include_plotlyjs=False)
@@ -440,6 +477,9 @@ def generate_generic_table(df: pd.DataFrame, columns: list, title: str) -> str:
             else: # Likely a rate or index
                 formatted_df[col] = formatted_df[col].apply(lambda x: f"{x:.2f}" if pd.notnull(x) else "-")
                 
+    # Rename index to 'Date' for better display
+    formatted_df.index.name = 'Date'
+    
     # Generate HTML
     html = f"<h3>{title}</h3>"
     html += formatted_df.to_html(classes="table table-striped table-hover table-sm", border=0)
