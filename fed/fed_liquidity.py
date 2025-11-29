@@ -394,11 +394,9 @@ def calculate_effective_policy_stance(df):
         # Alias semantico per chiarezza
         df['Qualitative_Easing_Support'] = df['QE_Effective']
 
-    # DEPRECATO: Net_Policy_Stance causava double counting
-    # Se necessario per backward compatibility, ridefinito come alias puro di Flow_Nominal_Assets
-    # (senza sommare il reinvestimento che è già incluso)
-    if 'Flow_Nominal_Assets' in df.columns:
-        df['Net_Policy_Stance'] = df['Flow_Nominal_Assets']  # Solo quantità, no double counting
+    # Net_Policy_Stance REMOVED - was deprecated and caused confusion
+    # Use Net_Balance_Sheet_Flow or Flow_Nominal_Assets for quantity measure
+    # Use Qualitative_Easing_Support or QE_Effective for quality measure
 
     return df
 
