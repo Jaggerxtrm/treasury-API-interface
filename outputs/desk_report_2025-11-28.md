@@ -1,7 +1,7 @@
 ======================================================================
 TREASURY LIQUIDITY DESK REPORT
 ======================================================================
-Report Date: 2025-11-28 08:28:29
+Report Date: 2025-11-28 23:57:34
 Version: 1.0.0
 ======================================================================
 
@@ -10,18 +10,18 @@ SECTION 0: EXECUTIVE SUMMARY
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 Key Findings:
-• Fiscal Impulse: 0.20% of GDP (-0.44% vs 0.64% target) - BELOW TARGET
-• Net Liquidity: $5.65T (+0.04T MTD)
-• RRP Balance: $2B (-95.7% MTD) - CRITICAL
+• Fiscal Impulse: 0.22% of GDP (-0.42% vs 0.64% target) - BELOW TARGET
+• Net Liquidity: $5.64T (+0.00T MTD)
+• RRP Balance: $8B (+0.0% MTD) - CRITICAL
 • Monetary Regime: QT (100% confidence)
-• Market Stress: 39/100 (MODERATE) ✅
+• Market Stress: 4/100 (LOW) ✅
 
 Quick Metrics:
 Metric                         Current      Target       Status
 ──────────────────────────────────────────────────────────────────────
-Weekly Impulse % GDP            0.20%      0.64%       ↓ -0.44%
-Net Liquidity (T)              $ 5.65T      —            +0.04T MTD
-RRP Balance (B)                $    2B      —            -50B MTD
+Weekly Impulse % GDP            0.22%      0.64%       ↓ -0.42%
+Net Liquidity (T)              $ 5.64T      —            +0.00T MTD
+RRP Balance (B)                $    8B      —            +0B MTD
 Regime                         QT           —            100% conf
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -32,15 +32,15 @@ SECTION 1: FISCAL IMPULSE ANALYSIS
 
 Metric                    Current        Target        Gap
 ──────────────────────────────────────────────────────────────────────
-Weekly Impulse % GDP        0.20%       0.64%       -0.44%
-MA20 Daily Impulse        $12,653M      —             —
-Daily Impulse (latest)    $-12,746M      —             —
+Weekly Impulse % GDP        0.22%       0.64%       -0.42%
+MA20 Daily Impulse        $13,994M      —             —
+Daily Impulse (latest)    $30,949M      —             —
 
-Interpretation: Impulse is BELOW TARGET (-0.44%), indicating contractionary fiscal stance.
+Interpretation: Impulse is BELOW TARGET (-0.42%), indicating contractionary fiscal stance.
 
 1.2 Household Absorption
-Household Impulse:        $6,921M
-Household Share:          34.6% of total
+Household Impulse:        $13,152M
+Household Share:          24.1% of total
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 SECTION 2: TIME-FRAME DECOMPOSITION
@@ -48,24 +48,24 @@ SECTION 2: TIME-FRAME DECOMPOSITION
 
 2.1 Month-to-Date (MTD)
 
-Period: 2025-11-01 to 2025-11-28
-RRP MTD Change:           $-50B
-Net Liquidity MTD:        $37,615M
-Balance Sheet MTD:        $-31,751M
-Avg SOFR-IORB Spread:     8.11 bps
+Period: 2025-12-01 to 2025-12-01
+RRP MTD Change:           $0B
+Net Liquidity MTD:        $0M
+Balance Sheet MTD:        $0M
+Avg SOFR-IORB Spread:     nan bps
 
 2.2 Quarter-to-Date (QTD)
 
-Period: 2025-10-01 to 2025-11-28
-RRP QTD Change:           $-8B (-78.2%)
-QT Pace (Annualized):     $-135,977M/year
-Spread Volatility:        7.69 bps (std)
+Period: 2025-10-01 to 2025-12-01
+RRP QTD Change:           $-3B (-25.7%)
+QT Pace (Annualized):     $-141,039M/year
+Spread Volatility:        7.84 bps (std)
 
 2.3 3-Month Rolling
 
-3M Avg Net Liquidity:     $5,674,738M
+3M Avg Net Liquidity:     $5,668,492M
 3M Trend:                 ↓ Declining
-Current Percentile:       43th
+Current Percentile:       35th
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 SECTION 3: HISTORICAL COMPARISON & DEVIATION ANALYSIS
@@ -75,11 +75,11 @@ SECTION 3: HISTORICAL COMPARISON & DEVIATION ANALYSIS
 
 Timeframe        Current        vs LY          Change
 ──────────────────────────────────────────────────────────────────────
-FYTD Cumulative  $332,495M    —              -107,419M
+FYTD Cumulative  $363,444M    —              -97,861M
 
 3.2 3-Year Baseline Comparison
-Current MA20:             $12,653M
-vs 3-Year Baseline:       +10,343M
+Current MA20:             $13,994M
+vs 3-Year Baseline:       +5,029M
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 SECTION 4: LIQUIDITY COMPOSITION & FLOW DYNAMICS
@@ -87,13 +87,13 @@ SECTION 4: LIQUIDITY COMPOSITION & FLOW DYNAMICS
 
 4.1 TGA (Treasury General Account) Balance
 
-Current Balance:          $931,736M
+Current Balance:          $899,678M
 
 Status: HIGH - pre-funding buildup or reduced issuance ahead
 
 4.2 Household Absorption Breakdown
 
-Total Household:          $6,921M (34.6%)
+Total Household:          $13,152M (24.1%)
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 SECTION 5: FED LIQUIDITY & MONETARY CONDITIONS
@@ -103,20 +103,20 @@ SECTION 5: FED LIQUIDITY & MONETARY CONDITIONS
 
 Component              Current        MTD Δ          Trend
 ──────────────────────────────────────────────────────────────────────
-Fed Assets             $6,555,283M    -31,751M    +0M/wk
-RRP Balance            $2B     -50B
+Fed Assets             $6,552,419M    +0M    +0M/wk
+RRP Balance            $8B     +0B
 TGA Balance            $906,547M    —
 ──────────────────────────────────────────────────────────────────────
-NET LIQUIDITY          $5,646,519M    +37,615M
+NET LIQUIDITY          $5,638,311M    +0M
 
 5.2 Repo Market Stress Indicators
 
 Metric                  Current    MA20       Threshold   Status
 ──────────────────────────────────────────────────────────────────────
-SOFR-IORB Spread         11.0 bps    6.1 bps  >10 bps     🟡 WARNING
-EFFR-IORB Spread         -2.0 bps  —          —           ✅
-RRP Usage               $    2B    —          <$50B       🔴 CRITICAL
-Stress Index               39/100  —          >50         ✅ LOW
+SOFR-IORB Spread          nan bps    7.3 bps  >10 bps     ✅ NORMAL
+EFFR-IORB Spread          nan bps  —          —           ✅
+RRP Usage               $    8B    —          <$50B       🔴 CRITICAL
+Stress Index                4/100  —          >50         ✅ LOW
 
 5.3 Monetary Regime Confidence
 
@@ -130,11 +130,13 @@ QUANTITÀ - Net Balance Sheet Flow:
   Direction:            Neutral
 
 QUALITÀ - Shadow QE Support:
-  Total Support:        $0M
+  Total Support:        $24,400M
+  Components:
+    • Repo Operations:  $24B
   (Supporto qualitativo: duration, risk appetite)
 
 Interpretazione:
-  • Policy stance sostanzialmente neutrale
+  • Balance sheet stabile ma supporto qualitativo attivo
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 SECTION 6: INTEGRATED LIQUIDITY VIEW
@@ -144,21 +146,21 @@ SECTION 6: INTEGRATED LIQUIDITY VIEW
 
 Source              Weekly Flow    Direction       Net Liquidity Impact
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Fiscal Impulse         +0.0B/week   Injection          +0.0B
-Tax Receipts         -113.0B/week   Drain            -113.0B
-Fed QT (Assets)        +0.0B/week   Injection          +0.0B
-RRP Drawdown           -1.4B/week   Drain              -1.4B
-TGA Net Change        +21.9B/week   Injection         +21.9B
+Fiscal Impulse        +70.0B/week   Injection         +70.0B
+Tax Receipts         -115.3B/week   Drain            -115.3B
+Fed QT (Assets)        -2.9B/week   Drain              -2.9B
+RRP Drawdown           -1.1B/week   Drain              -1.1B
+TGA Net Change         -5.7B/week   Drain              -5.7B
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-NET WEEKLY          —              Net Drain         -91.1B/week
+NET WEEKLY          —              Net Drain         -53.9B/week
 
 Conclusion: SEVERE NET DRAIN - Significant liquidity headwind.
 
 6.2 Correlations (3-Month)
 
 Net Liq vs TGA:           -0.97 (mechanical inverse expected)
-RRP vs SOFR Spread:       +0.41
-Net Liq vs SOFR Spread:   -0.52 (stress indicator)
+RRP vs SOFR Spread:       +0.62
+Net Liq vs SOFR Spread:   -0.50 (stress indicator)
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 SECTION 7: RISK ASSESSMENT & OUTLOOK
@@ -167,17 +169,17 @@ SECTION 7: RISK ASSESSMENT & OUTLOOK
 7.1 Key Risks
 
 1. RRP Depletion Risk (CRITICAL) 🔴
-   - RRP at $2B, below $50B critical threshold
+   - RRP at $8B, below $50B critical threshold
    - Implication: Reserve scarcity imminent - Fed may slow QT or activate SRF
 
 2. Fiscal Impulse Fade (MODERATE) 🟢
-   - Impulse -0.44% below target
+   - Impulse -0.42% below target
    - Implication: Reduced fiscal support for growth and liquidity
 
 7.2 Base Case Outlook (30 Days)
 
-• Net Liquidity: Expected to trend ↑ Rising (R²=0.59)
-• RRP: Expected to trend ↓ Declining
+• Net Liquidity: Expected to trend ↑ Rising (R²=0.15)
+• RRP: Expected to trend ↑ Rising
 • Fed Policy: QT regime likely to continue barring major market disruption
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -186,14 +188,13 @@ SECTION 8: ACTIONABLE INTELLIGENCE
 
 For Rates Traders:
 • Front-end: RRP depletion suggests floor risk on short rates - favor receivers
-• Curve: SOFR-IORB at 11.0bps signals stress - flattener bias
 
 For Equity/Credit:
-• Risk-off: Net liquidity drain of $-91.1B/week - headwind for risk assets
+• Risk-off: Net liquidity drain of $-53.9B/week - headwind for risk assets
 
 For Macro Strategy:
 • Regime: QT with 100% confidence
-• GDP Impact: Fiscal impulse at 0.20% GDP annualized
+• GDP Impact: Fiscal impulse at 0.22% GDP annualized
 
 ======================================================================
 END OF REPORT

@@ -256,10 +256,21 @@ def fetch_all_data():
             if col_name in df.columns:
                 weekly_columns.append(col_name)
     
-    # Apply forward fill only to weekly series
+    # Apply forward fill only to weekly series (limited to prevent future dates)
     if weekly_columns:
         print(f"Applying forward fill to {len(weekly_columns)} weekly series: {weekly_columns}")
-        df[weekly_columns] = df[weekly_columns].ffill()
+        # Limit forward fill to max 3 days to handle weekends/holidays without creating future dates
+        df[weekly_columns] = df[weekly_columns].ffill(limit=3)
+
+        # Truncate to last business day (not today if today is weekend/holiday)
+        last_bday = pd.Timestamp.today().normalize()
+        # If today is weekend, use last Friday
+        while last_bday.dayofweek >= 5:  # 5 = Saturday, 6 = Sunday
+            last_bday -= pd.Timedelta(days=1)
+
+        if df.index[-1] > last_bday:
+            print(f"⚠️  Truncating data to last business day ({last_bday.strftime('%Y-%m-%d')})")
+            df = df[df.index <= last_bday]
     else:
         print("No weekly series found for forward fill")
     
@@ -651,8 +662,30 @@ def calculate_mtd_metrics(df):
     """
     if df.empty:
         return {}
-    
-    last_date = df.index[-1]
+
+    # Get actual last date with real data (not forward-filled future dates)
+    # Use daily data series to determine the true last date
+    last_date = df.index[-1]  # Default to last index
+    daily_columns = ['RRP_Balance', 'SOFR_Rate', 'IORB_Rate', 'TGA_Balance']
+
+    for col in daily_columns:
+        if col in df.columns:
+            last_valid_idx = df[col].last_valid_index()
+            if last_valid_idx and last_valid_idx < last_date:
+                # Use the earlier date (actual data, not forward-filled)
+                last_date = last_valid_idx
+                break
+
+    # Additional safety: don't use dates in the future or weekends
+    last_bday = pd.Timestamp.today().normalize()
+    # If today is weekend, use last Friday
+    while last_bday.dayofweek >= 5:  # 5 = Saturday, 6 = Sunday
+        last_bday -= pd.Timedelta(days=1)
+
+    if last_date > last_bday:
+        print(f"⚠️  MTD calculation: Adjusting last_date from {last_date.strftime('%Y-%m-%d')} to last business day {last_bday.strftime('%Y-%m-%d')}")
+        last_date = last_bday
+
     month_start = last_date.replace(day=1)
     mtd_data = df[df.index >= month_start]
     
@@ -1285,6 +1318,31 @@ def generate_report(df, series_metadata=None):
         print("No data available for report.")
         return
 
+    # Validate data dates - warn if data extends beyond last business day
+    last_bday = pd.Timestamp.today().normalize()
+    # If today is weekend, use last Friday
+    while last_bday.dayofweek >= 5:  # 5 = Saturday, 6 = Sunday
+        last_bday -= pd.Timedelta(days=1)
+
+    last_date = df.index[-1]
+
+    if last_date > last_bday:
+        print("=" * 80)
+        print("⚠️  DATA DATE WARNING")
+        print("=" * 80)
+        print(f"Data extends to {last_date.strftime('%Y-%m-%d')} but last business day is {last_bday.strftime('%Y-%m-%d')}")
+        print(f"Forward fill may have created future dates - MTD calculations will be affected")
+        print(f"Truncating data to last business day for accurate metrics")
+        print("=" * 80)
+        print()
+
+        # Truncate to last business day
+        df = df[df.index <= last_bday]
+
+        if df.empty:
+            print("No data available after date validation.")
+            return
+
     recent = df.tail(5)
     
     # Use last row with valid CORE data (RRP and Net_Liquidity are the key indicators)
@@ -1700,8 +1758,17 @@ def generate_report(df, series_metadata=None):
     print(f"\n{'='*60}")
     print("💾 Saving to DuckDB...")
     try:
+        # Truncate to last business day before saving
+        last_bday = pd.Timestamp.today().normalize()
+        while last_bday.dayofweek >= 5:  # 5 = Saturday, 6 = Sunday
+            last_bday -= pd.Timedelta(days=1)
+
+        if df.index[-1] > last_bday:
+            print(f"ℹ️  Truncating data to last business day ({last_bday.strftime('%Y-%m-%d')}) before saving")
+            df = df[df.index <= last_bday]
+
         db = TimeSeriesDB("database/treasury_data.duckdb")
-        
+
         # Save full data
         df_save = df.reset_index()
         if 'index' in df_save.columns:
