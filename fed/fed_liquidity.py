@@ -405,12 +405,20 @@ def calculate_metrics(df):
     Calculates derived metrics: Net Liquidity, Spreads, Changes.
     """
     # 0. Unit Conversions FIRST (before any calculations)
-    # Net Liq = Fed Assets - RRP - TGA
-    # Units: All in Millions
+    #
+    # UNIT STANDARDS:
     # - Fed_Total_Assets: Millions (WALCL from FRED)
-    # - RRP_Balance: Billions (convert to Millions)
-    # - Repo_Ops_Balance: Billions (convert to Millions) - RPONTTLD
     # - TGA_Balance: Millions (from DTS)
+    # - RRP_Balance: Billions (kept in billions for display/trends, convert to _M for Net_Liquidity)
+    # - Repo_Ops_Balance: Billions (kept in billions, convert to _M for calculations)
+    #
+    # Net_Liquidity Calculation (All in Millions):
+    #   Net_Liquidity = Fed_Total_Assets - RRP_Balance_M - TGA_Balance
+    #
+    # Why mixed units?
+    # - RRP values naturally in billions (easier to read: "$8B" vs "$8,000M")
+    # - Fed Assets and TGA already in millions from source APIs
+    # - Convert RRP/Repo to millions only when needed for Net_Liquidity
 
     if 'RRP_Balance' in df.columns:
         df['RRP_Balance_M'] = df['RRP_Balance'] * 1000 # Billions -> Millions
